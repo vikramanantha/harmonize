@@ -1,4 +1,10 @@
 @import "tailwindcss";
+.muse-form { display: grid; gap: 12px; margin-top: 24px; text-align: left; }
+.muse-form label { font-size: 14px; }
+.muse-form input, .muse-form textarea { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 14px; background: var(--bg); color: var(--ink); font: inherit; }
+.muse-form textarea { resize: vertical; }
+.muse-form input:focus-visible, .muse-form textarea:focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; }
+.muse-panel button:disabled { opacity: .55; cursor: wait; }
 :root {
   --bg: #101110;
   --surface: #181a17;
