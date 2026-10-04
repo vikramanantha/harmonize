@@ -2,6 +2,9 @@ package com.mhacks.blechat
 
 import android.Manifest
 import android.bluetooth.BluetoothManager
+import android.content.Intent
+import android.net.Uri
+import android.telephony.SmsManager
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -44,6 +47,12 @@ class MainActivity : ComponentActivity(), BleListener {
         home.me?.username?.let { ensureBluetooth(it) }
     }
 
+    private var askedForSms = false
+    private val smsPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val line = home.me?.photonLine ?: return@registerForActivityResult
+        if (granted) sendFirstText(line) else home.textsLine = line
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -66,6 +75,7 @@ class MainActivity : ComponentActivity(), BleListener {
                             serverUrl = Api.serverUrl(this),
                             onDevModeChange = ::setDev,
                             onSignOut = ::signOut,
+                            onTurnOnTexts = ::openFirstText,
                         )
                     } else {
                         SignInScreen(devMode = devMode, onDevModeChange = ::setDev, onSignedIn = ::onSignedIn)
@@ -116,7 +126,10 @@ class MainActivity : ComponentActivity(), BleListener {
                 val me = withContext(Dispatchers.IO) { Api.me(this@MainActivity) }
                 home.me = me
                 home.serverError = null
-                if (me.profileStatus == "ready") me.username?.let { ensureBluetooth(it) }
+                if (me.profileStatus == "ready") {
+                    me.username?.let { ensureBluetooth(it) }
+                    ensureFirstText(me)
+                }
             } catch (e: Exception) {
                 val message = e.message ?: e.toString()
                 if ("not logged in" in message.lowercase()) return signOut()
@@ -139,6 +152,48 @@ class MainActivity : ComponentActivity(), BleListener {
         home.bluetoothProblem = null
         if (BleService.username != username) BleService.start(this, username)
         home.bluetoothOn = true
+    }
+
+    // ---- Photon first text ------------------------------------------------
+    // On Photon's shared lines, a person must text their assigned line once
+    // before Photon may text them. With SMS permission the app sends it; without,
+    // the home screen offers a button that opens Messages pre-filled.
+
+    private fun ensureFirstText(me: Api.Me) {
+        val line = me.photonLine ?: return
+        if (Api.firstTextSent(this, line)) return
+        if (checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED) {
+            sendFirstText(line)
+        } else if (!askedForSms) {
+            askedForSms = true
+            smsPermission.launch(Manifest.permission.SEND_SMS)
+        } else {
+            home.textsLine = line
+        }
+    }
+
+    private fun sendFirstText(line: String) {
+        try {
+            getSystemService(SmsManager::class.java).sendTextMessage(line, null, FIRST_TEXT, null, null)
+        } catch (e: Exception) {
+            onLog("Couldn't send the first text to $line: ${e.message}")
+            home.textsLine = line
+            return
+        }
+        firstTextDone(line)
+        onLog("Sent the first text to Photon ($line); match texts are on")
+    }
+
+    private fun openFirstText(line: String) {
+        // Android's format is "smsto:<number>" plus an sms_body extra ("&body=" is the iPhone format).
+        startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$line")).putExtra("sms_body", FIRST_TEXT))
+        firstTextDone(line)
+    }
+
+    private fun firstTextDone(line: String) {
+        Api.markFirstTextSent(this, line)
+        home.textsLine = null
+        Api.async({ Api.reportFirstText(this, line) }, { onLog("Reporting the first text to the server failed: $it") }) {}
     }
 
     private fun hasPermissions() = PERMISSIONS.all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
@@ -181,5 +236,6 @@ class MainActivity : ComponentActivity(), BleListener {
         )
         const val PEER_TIMEOUT_MS = 15_000L
         val TIME = SimpleDateFormat("HH:mm:ss", Locale.US)
+        const val FIRST_TEXT = "Hi Harmonize! Turning on my match texts."
     }
 }

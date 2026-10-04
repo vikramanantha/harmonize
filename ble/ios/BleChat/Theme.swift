@@ -7,22 +7,32 @@ enum Brand {
     static let gradient = LinearGradient(colors: [violet, pink], startPoint: .topLeading, endPoint: .bottomTrailing)
 }
 
-/// The mark: two overlapping circles.
+/// The mark: two see-through circles whose overlap is solid.
 struct Logo: View {
     var size: CGFloat
     var onGradient = false
 
     var body: some View {
-        let r = size * 0.30
-        ZStack {
-            Circle()
-                .fill(onGradient ? Color.white.opacity(0.95) : Brand.violet)
-                .frame(width: r * 2, height: r * 2)
-                .offset(x: -r * 0.55)
-            Circle()
-                .fill(onGradient ? Color.white.opacity(0.6) : Brand.pink.opacity(0.8))
-                .frame(width: r * 2, height: r * 2)
-                .offset(x: r * 0.55)
+        Canvas { context, canvasSize in
+            let r = size * 0.30
+            let cy = canvasSize.height / 2
+            let left = Path(ellipseIn: CGRect(x: canvasSize.width / 2 - r * 0.55 - r, y: cy - r, width: r * 2, height: r * 2))
+            let right = Path(ellipseIn: CGRect(x: canvasSize.width / 2 + r * 0.55 - r, y: cy - r, width: r * 2, height: r * 2))
+            if onGradient {
+                context.fill(left, with: .color(.white.opacity(0.5)))
+                context.fill(right, with: .color(.white.opacity(0.5)))
+            } else {
+                context.fill(left, with: .color(Brand.violet.opacity(0.45)))
+                context.fill(right, with: .color(Brand.pink.opacity(0.45)))
+            }
+            context.clip(to: left)
+            if onGradient {
+                context.fill(right, with: .color(.white))
+            } else {
+                context.fill(right, with: .linearGradient(
+                    Gradient(colors: [Brand.violet, Brand.pink]),
+                    startPoint: .zero, endPoint: CGPoint(x: canvasSize.width, y: canvasSize.height)))
+            }
         }
         .frame(width: size, height: size)
     }

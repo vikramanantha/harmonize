@@ -1,16 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Two overlapping circles: two people's tastes overlapping. 108dp canvas, art inside the 66dp safe zone. -->
+<!-- Two overlapping circles: two people's tastes overlapping. Each circle is
+     see-through; where they overlap is solid white. 108dp canvas, art inside
+     the 66dp safe zone. Circles: centers (45,54) and (63,54), radius 16. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:fillAlpha="0.95"
+        android:fillAlpha="0.5"
         android:fillColor="#FFFFFF"
         android:pathData="M29,54a16,16 0,1 0,32 0a16,16 0,1 0,-32 0" />
     <path
-        android:fillAlpha="0.6"
+        android:fillAlpha="0.5"
         android:fillColor="#FFFFFF"
         android:pathData="M47,54a16,16 0,1 0,32 0a16,16 0,1 0,-32 0" />
+    <!-- The overlap (a lens between the circles' crossing points at x=54, y=54±13.23). -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,40.77A16,16 0,0 1,54 67.23A16,16 0,0 1,54 40.77Z" />
 </vector>

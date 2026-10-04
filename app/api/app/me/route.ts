@@ -3,12 +3,18 @@ import { handler, json, requireAccount } from "@/lib/auth";
 import { config } from "@/lib/config";
 import { db } from "@/lib/db";
 import { matchesFor } from "@/lib/matching";
-import { failIfTimedOut } from "@/lib/muse-session";
+import { failIfTimedOut, registerForTexts } from "@/lib/muse-session";
+import { accountById } from "@/lib/db";
 
 export const runtime = "nodejs";
 
 export const GET = handler(async request => {
-  const account = failIfTimedOut(requireAccount(request));
+  let account = failIfTimedOut(requireAccount(request));
+  // Accounts that became ready before Photon was on get registered here, once.
+  if (account.profile_status === "ready" && account.consent && config.notifier === "photon" && !account.photon_line && !account.photon_error) {
+    await registerForTexts(account);
+    account = accountById(account.id) ?? account;
+  }
   const username = account.username;
   const done = !config.loop && !!username &&
     db().prepare("SELECT 1 FROM notifications WHERE username = ? AND status = 'sent' LIMIT 1").get(username);
@@ -16,6 +22,11 @@ export const GET = handler(async request => {
     profile_status: account.profile_status,
     profile_error: account.profile_error,
     refresh_error: account.refresh_error,
+    photon_error: account.photon_error,
+    // The app texts this number once (Android automatically, iPhone with one tap)
+    // so Photon is allowed to text this person; null when texts are off.
+    photon_line: account.photon_line,
+    first_text_at: account.first_text_at,
     username,
     name: account.name,
     phone_number: account.phone_number,

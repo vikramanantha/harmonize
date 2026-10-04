@@ -23,6 +23,9 @@ CREATE TABLE IF NOT EXISTS accounts (
   prompted_at INTEGER,
   summarized_at INTEGER,
   refresh_error TEXT,
+  photon_error TEXT,                          -- why adding this number to Photon's Users list failed
+  photon_line TEXT,                           -- the Photon number this person must text once first
+  first_text_at INTEGER,                      -- when the app reported sending that first text
   created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS logins (
@@ -84,6 +87,9 @@ export type Account = {
   prompted_at: number | null;
   summarized_at: number | null;
   refresh_error: string | null;
+  photon_error: string | null;
+  photon_line: string | null;
+  first_text_at: number | null;
   created_at: number;
 };
 
@@ -111,6 +117,9 @@ export function db(): DatabaseSync {
     database.exec(SCHEMA);
     // Columns added after the first release; ignore "duplicate column" on newer files.
     try { database.exec("ALTER TABLE logins ADD COLUMN auto_approve INTEGER NOT NULL DEFAULT 0"); } catch {}
+    try { database.exec("ALTER TABLE accounts ADD COLUMN photon_error TEXT"); } catch {}
+    try { database.exec("ALTER TABLE accounts ADD COLUMN photon_line TEXT"); } catch {}
+    try { database.exec("ALTER TABLE accounts ADD COLUMN first_text_at INTEGER"); } catch {}
     globalState.harmonyDb = database;
   }
   return globalState.harmonyDb;

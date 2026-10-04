@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 import { config } from "./config";
 import { db, newToken, upsertAccount, type Account, type Login } from "./db";
 import { approveSite, browserbase, createContext, createSession, MuseError, nextStep, release, submitPrompt, withPage } from "./muse-browser";
+import { registerRecipient } from "./notify";
 import { buildMusePrompt, buildSetupCheckPrompt } from "./prompts";
 import { saveTasteProfile, tasteProfileByUsername } from "./spacetime";
 
@@ -252,6 +253,25 @@ export async function completeProfile(account: Account, username: string, name: 
   }
   db().prepare("UPDATE accounts SET username = ?, name = ?, profile_status = 'ready', profile_error = NULL, refresh_error = NULL, summarized_at = ?, callback_token = NULL WHERE id = ?")
     .run(username, name || profile.name, Date.now(), account.id);
+  await registerForTexts({ ...account, name: name || profile.name });
+}
+
+/**
+ * Puts the user's number on Photon's Users list so match texts can reach them.
+ * Only for people who agreed to texts and when Photon is the notifier. A
+ * failure doesn't block the profile; it's stored and shown in developer mode,
+ * and the match text would fail with Photon's reason.
+ */
+export async function registerForTexts(account: Pick<Account, "id" | "phone_number" | "consent" | "name">): Promise<void> {
+  if (!account.consent || config.notifier !== "photon") return;
+  try {
+    const { line } = await registerRecipient(account.phone_number, account.name);
+    db().prepare("UPDATE accounts SET photon_error = NULL, photon_line = ? WHERE id = ?").run(line, account.id);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Photon registration failed for account ${account.id}: ${message}`);
+    db().prepare("UPDATE accounts SET photon_error = ? WHERE id = ?").run(message, account.id);
+  }
 }
 
 /** Marks profiles failed when Muse hasn't called back in time. Called from GET /api/app/me. */

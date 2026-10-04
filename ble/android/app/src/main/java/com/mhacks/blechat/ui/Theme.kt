@@ -12,6 +12,9 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
@@ -94,7 +97,7 @@ fun HarmonizeTheme(content: @Composable () -> Unit) {
     )
 }
 
-/** The mark from the app icon: two overlapping circles. */
+/** The mark from the app icon: two see-through circles whose overlap is solid. */
 @Composable
 fun Logo(size: Dp, modifier: Modifier = Modifier, onGradient: Boolean = false) {
     Canvas(modifier.size(size)) {
@@ -102,12 +105,15 @@ fun Logo(size: Dp, modifier: Modifier = Modifier, onGradient: Boolean = false) {
         val y = this.size.height / 2
         val left = Offset(this.size.width / 2 - r * 0.55f, y)
         val right = Offset(this.size.width / 2 + r * 0.55f, y)
+        val leftCircle = Path().apply { addOval(Rect(left, r)) }
         if (onGradient) {
-            drawCircle(Color.White.copy(alpha = 0.95f), r, left)
-            drawCircle(Color.White.copy(alpha = 0.6f), r, right)
+            drawCircle(Color.White.copy(alpha = 0.5f), r, left)
+            drawCircle(Color.White.copy(alpha = 0.5f), r, right)
+            clipPath(leftCircle) { drawCircle(Color.White, r, right) }
         } else {
-            drawCircle(Violet, r, left)
-            drawCircle(Pink.copy(alpha = 0.8f), r, right)
+            drawCircle(Violet.copy(alpha = 0.45f), r, left)
+            drawCircle(Pink.copy(alpha = 0.45f), r, right)
+            clipPath(leftCircle) { drawCircle(BrandGradient, r, right) }
         }
     }
 }

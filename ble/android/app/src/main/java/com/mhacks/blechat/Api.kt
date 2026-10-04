@@ -47,6 +47,9 @@ object Api {
         val threshold: Double,
         val done: Boolean,
         val matches: List<Match>,
+        /** The Photon number this person must text once before Photon may text them; null if texts are off. */
+        val photonLine: String?,
+        val firstTextAt: Long?,
     )
 
     data class Encounter(val status: String, val otherUsername: String, val otherName: String?, val score: Double?, val verdict: String?)
@@ -100,6 +103,8 @@ object Api {
             loop = j.getBoolean("loop"),
             threshold = j.getDouble("match_threshold"),
             done = j.getBoolean("done"),
+            photonLine = j.optStringOrNull("photon_line"),
+            firstTextAt = if (j.has("first_text_at") && !j.isNull("first_text_at")) j.getLong("first_text_at") else null,
             matches = (0 until matches.length()).map { i ->
                 val m = matches.getJSONObject(i)
                 Match(
@@ -124,6 +129,17 @@ object Api {
             score = if (j.has("score") && !j.isNull("score")) j.getDouble("score") else null,
             verdict = j.optStringOrNull("verdict"),
         )
+    }
+
+    fun reportFirstText(context: Context, line: String) {
+        post(context, "/api/app/photon/first-text", JSONObject().put("line", line), auth = true)
+    }
+
+    /** Whether this phone already sent its one-time first text to [line]. */
+    fun firstTextSent(context: Context, line: String) = prefs(context).getBoolean("first_text_$line", false)
+
+    fun markFirstTextSent(context: Context, line: String) {
+        prefs(context).edit().putBoolean("first_text_$line", true).apply()
     }
 
     private fun parseLogin(j: JSONObject) =

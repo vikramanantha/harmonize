@@ -56,6 +56,8 @@ class HomeState {
     var log by mutableStateOf<List<String>>(emptyList())
     var bluetoothOn by mutableStateOf(false)
     var bluetoothProblem by mutableStateOf<String?>(null)
+    /** Set when the first text to Photon must be sent by hand (SMS permission declined). */
+    var textsLine by mutableStateOf<String?>(null)
 }
 
 @Composable
@@ -65,6 +67,7 @@ fun HomeScreen(
     serverUrl: String,
     onDevModeChange: (Boolean) -> Unit,
     onSignOut: () -> Unit,
+    onTurnOnTexts: (String) -> Unit,
 ) {
     val me = state.me
     val colors = MaterialTheme.colorScheme
@@ -105,6 +108,21 @@ fun HomeScreen(
         if (me?.profileStatus == "ready") {
             state.bluetoothProblem?.let { problem ->
                 item { MessageCard(problem, isError = true, modifier = Modifier.padding(top = 16.dp)) }
+            }
+            state.textsLine?.let { line ->
+                item {
+                    Card(Modifier.padding(top = 16.dp)) {
+                        Text("Turn on match texts", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Harmonize texts you when someone you match with is nearby. Send one quick text to finish setting it up.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = colors.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(14.dp))
+                        GradientButton("Open Messages", busy = false) { onTurnOnTexts(line) }
+                    }
+                }
             }
             if (me.done) {
                 item {
@@ -153,6 +171,8 @@ fun HomeScreen(
                         DevLine("Profile", it.profileStatus)
                         DevLine("Match threshold", "${(it.threshold * 100).toInt()}%")
                         DevLine("LOOP", it.loop.toString())
+                        DevLine("Photon line", it.photonLine ?: "none (texts off or not registered)")
+                        DevLine("First text", if (it.firstTextAt != null) "sent" else "not sent")
                     }
                 }
             }

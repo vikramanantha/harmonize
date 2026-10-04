@@ -17,6 +17,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Sends the one-time first text to the person's Photon line, which lets
+         Photon text them about matches. -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
+
     <!-- Talking to the Harmonize server. -->
     <uses-permission android:name="android.permission.INTERNET" />
 

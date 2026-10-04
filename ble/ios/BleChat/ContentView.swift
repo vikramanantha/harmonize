@@ -19,6 +19,10 @@ struct ContentView: View {
 struct MainView: View {
     @ObservedObject var store: BleStore
     @AppStorage("dev_mode") private var devMode = false
+    @State private var composing = false
+    @State private var firstTextDone = false
+
+    private static let firstText = "Hi Harmonize! Turning on my match texts."
 
     var body: some View {
         NavigationStack {
@@ -38,6 +42,14 @@ struct MainView: View {
             }
             .background(Color(.systemGroupedBackground))
             .toolbar(.hidden, for: .navigationBar)
+            .sheet(isPresented: $composing) {
+                if let line = store.me?.photon_line {
+                    MessageComposer(recipient: line, body: Self.firstText) { sent in
+                        if sent { markFirstText(line) }
+                    }
+                    .ignoresSafeArea()
+                }
+            }
         }
         .tint(Brand.violet)
     }
@@ -126,6 +138,17 @@ struct MainView: View {
                     .padding(.top, 16)
                 GradientButton(title: "Sign in again", busy: false) { store.logout() }.padding(.top, 12)
             default:
+                if let line = me.photon_line, !firstTextDone, !Api.firstTextSent(line) {
+                    // On Photon's shared lines a person must text their line once before
+                    // Photon may text them; iOS only allows this with the person tapping Send.
+                    CardBox {
+                        Text("Turn on match texts").font(.headline)
+                        Text("Harmonize texts you when someone you match with is nearby. Send one quick text to finish setting it up.")
+                            .font(.subheadline).foregroundStyle(.secondary).padding(.top, 4)
+                        GradientButton(title: "Send the text", busy: false) { openFirstText(line) }.padding(.top, 14)
+                    }
+                    .padding(.top, 16)
+                }
                 if me.done {
                     MessageCard(text: "You've been matched! We texted you both, so go say hi.", isError: false).padding(.top, 16)
                 }
@@ -180,6 +203,8 @@ struct MainView: View {
                     devLine("Profile", me.profile_status)
                     devLine("Match threshold", "\(Int(me.match_threshold * 100))%")
                     devLine("LOOP", me.loop ? "true" : "false")
+                    devLine("Photon line", me.photon_line ?? "none")
+                    devLine("First text", me.first_text_at != nil ? "sent" : "not sent")
                 }
             }
             sectionTitle("Log", trailing: nil)
@@ -189,6 +214,25 @@ struct MainView: View {
                     Text(line).font(.caption2.monospaced()).padding(.vertical, 3)
                 }
             }
+        }
+    }
+
+    // MARK: First text to Photon
+
+    private func openFirstText(_ line: String) {
+        if MessageComposer.canSend {
+            composing = true
+        } else if let url = URL(string: "sms:\(line)&body=\(Self.firstText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")") {
+            UIApplication.shared.open(url)
+            markFirstText(line)
+        }
+    }
+
+    private func markFirstText(_ line: String) {
+        Api.markFirstTextSent(line)
+        firstTextDone = true
+        Task {
+            do { try await Api.reportFirstText(line: line) } catch { store.onLog("Reporting the first text failed: \(error.localizedDescription)") }
         }
     }
 

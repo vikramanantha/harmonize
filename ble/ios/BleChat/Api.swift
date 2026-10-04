@@ -58,6 +58,9 @@ enum Api {
         let match_threshold: Double
         let done: Bool
         let matches: [Match]
+        /// The Photon number this person must text once before Photon may text them; nil if texts are off.
+        let photon_line: String?
+        let first_text_at: Double?
     }
 
     struct Encounter: Decodable {
@@ -79,6 +82,16 @@ enum Api {
     static func me() async throws -> Me {
         try await request("GET", "/api/app/me", body: nil, auth: true)
     }
+
+    private struct Ok: Decodable { let ok: Bool }
+
+    static func reportFirstText(line: String) async throws {
+        let _: Ok = try await request("POST", "/api/app/photon/first-text", body: ["line": line], auth: true)
+    }
+
+    /// Whether this phone already sent its one-time first text to `line`.
+    static func firstTextSent(_ line: String) -> Bool { defaults.bool(forKey: "first_text_\(line)") }
+    static func markFirstTextSent(_ line: String) { defaults.set(true, forKey: "first_text_\(line)") }
 
     static func encounter(_ otherUsername: String) async throws -> Encounter {
         try await request("POST", "/api/app/encounters", body: ["other_username": otherUsername], auth: true)
