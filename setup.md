@@ -1,12 +1,12 @@
-# Harmony setup
+# Harmonize setup
 
-Harmony matches people nearby by what they watch on Instagram Reels. Muse reads each person's Instagram and writes a taste profile to the shared SpacetimeDB; the phones find each other over Bluetooth; the server scores pairs and texts both people through Photon when they match.
+Harmonize matches people nearby by what they watch on Instagram Reels. Muse reads each person's Instagram and writes a taste profile to the shared SpacetimeDB; the phones find each other over Bluetooth; the server scores pairs and texts both people through Photon when they match.
 
 ```
 phone (Android/iOS)  --Bluetooth-->  phone
    |  reports "I'm near @username"
    v
-Harmony server (Next.js, this repo)  --> semantic/service.py (similarity)
+Harmonize server (Next.js, this repo)  --> semantic/service.py (similarity)
    |  login via Browserbase, prompts Muse      --> SpacetimeDB harmony-1o7k0 (taste_profile, match_result)
    |                                           --> Photon (iMessage)
 Muse (Meta's cloud) --writes taste_profile, then calls back--> server
@@ -72,9 +72,9 @@ The phones can't send `mock_username`; use curl for mock accounts, or point the 
    export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
    ./gradlew installDebug
    ```
-3. Open **Harmony**. Enter the server URL (the ngrok URL), your Muse email/mobile, your phone number (`+1…`). Tap Continue, enter the code Muse sends, then wait while Muse reads your Instagram (a few minutes).
-4. Allow **Nearby devices** and **Notifications**. Settings → Apps → Harmony → Battery → **Unrestricted** so it keeps running in the background.
-5. Logs: `~/Library/Android/sdk/platform-tools/adb logcat -s BleChat`
+3. Open **Harmonize**. Enter your Muse email or phone and your 10-digit phone number (the server URL is built in; turn on **Developer mode** at the bottom to see or change it). Tap Continue, enter the code Muse sends, then wait while Muse reads your Instagram (a few minutes).
+4. Allow **Nearby devices** and **Notifications**. Settings → Apps → Harmonize → Battery → **Unrestricted** so it keeps running in the background.
+5. Logs: `~/Library/Android/sdk/platform-tools/adb logcat -s Harmonize`
 
 ## 3. iPhone
 
@@ -102,6 +102,10 @@ Both phones show the result of every report in their log (`@name: 72%, MATCH. Wa
 ## Muse site approvals
 
 Muse asks before contacting a new website ("Allow Muse to share information with …?"). The prompt only contacts one site, this server's URL, and the server writes the profile to SpacetimeDB itself. So each Muse account taps **Always allow this site** once, the first time, and the daily refresh doesn't ask again. The ngrok free plan gives your account one fixed `*.ngrok-free.dev` domain; keep using it so the approval stays valid.
+
+## Developer mode
+
+Both apps have a **Developer mode** switch (bottom of the sign-in screen, and in the ⋯ menu on the home screen). Off: clean screens and short, friendly error messages. On: the server URL field, a Developer card (server, Bluetooth, profile status, threshold, LOOP), the Bluetooth/matching log, and raw error text.
 
 ## Troubleshooting
 

@@ -101,7 +101,7 @@ async function notifyBoth(score: Score, me: Account, mine: TasteProfile, other: 
   const percent = Math.round(score.score * 100);
   const errors: string[] = [];
   for (const [recipient, counterpart] of [[me, theirs], [other, mine]] as const) {
-    const text = `Harmony: ${counterpart.name} (@${counterpart.username}) is nearby and you're ${percent}% compatible. ${score.verdict}`;
+    const text = `Harmonize: ${counterpart.name} (@${counterpart.username}) is nearby and you're ${percent}% compatible. ${score.verdict}`;
     try {
       const { message_id } = await notifier().send(recipient.phone_number, text);
       db().prepare("INSERT INTO notifications (pair, username, status, message_id, created_at) VALUES (?, ?, 'sent', ?, ?)")

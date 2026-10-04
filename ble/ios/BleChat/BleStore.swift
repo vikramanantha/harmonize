@@ -15,6 +15,7 @@ final class BleStore: ObservableObject, BleListener {
     @Published private(set) var serverError: String?
     @Published private(set) var peers: [Peer] = []
     @Published private(set) var log: [String] = []
+    @Published private(set) var bluetoothOn = false
 
     private var peersByKey: [String: Peer] = [:]
     private lazy var method2 = Method2Gatt(listener: self)
@@ -52,6 +53,7 @@ final class BleStore: ObservableObject, BleListener {
         refreshTimer = nil
         method2.stop()
         runningUsername = nil
+        bluetoothOn = false
         UserDefaults.standard.removeObject(forKey: "username")
         Api.token = nil
         me = nil
@@ -86,6 +88,7 @@ final class BleStore: ObservableObject, BleListener {
         method2.stop()
         method2.start(username: username)
         runningUsername = username
+        bluetoothOn = true
         UserDefaults.standard.set(username, forKey: "username")
     }
 
@@ -129,7 +132,7 @@ final class BleStore: ObservableObject, BleListener {
     }
 
     func onLog(_ line: String) {
-        print("Harmony: \(line)") // shows in Xcode's console
+        print("Harmonize: \(line)") // shows in Xcode's console
         log.insert("\(time.string(from: Date()))  \(line)", at: 0)
         if log.count > 100 { log.removeLast() }
     }

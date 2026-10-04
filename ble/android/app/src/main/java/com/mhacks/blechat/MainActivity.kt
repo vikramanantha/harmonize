@@ -1,228 +1,177 @@
 package com.mhacks.blechat
 
 import android.Manifest
-import android.app.Activity
 import android.bluetooth.BluetoothManager
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.os.SystemClock
-import android.view.View
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
-import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.Crossfade
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.mhacks.blechat.ui.HarmonizeTheme
+import com.mhacks.blechat.ui.HomeScreen
+import com.mhacks.blechat.ui.HomeState
+import com.mhacks.blechat.ui.SignInScreen
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
- * Home screen once onboarding is done: who you are, who's nearby, your matches,
- * and a log. Bluetooth (Method 2, in BleService) starts by itself with the
- * Instagram username the server reported, and keeps running when this screen
- * closes. Method1Advertise.kt is kept for reference but no longer used.
+ * The whole app: sign in, then home (profile, nearby people, matches).
+ * Bluetooth (Method 2, in BleService) starts by itself with the Instagram
+ * username the server reported, and keeps running when the app is closed.
  */
-class MainActivity : Activity(), BleListener {
+class MainActivity : ComponentActivity(), BleListener {
 
-    private val handler = Handler(Looper.getMainLooper())
+    private var signedIn by mutableStateOf(false)
+    private var devMode by mutableStateOf(false)
+    private val home = HomeState()
     private val peers = LinkedHashMap<String, Peer>()
-    private val logLines = ArrayDeque<String>()
-    private var me: Api.Me? = null
-    private var serverError: String? = null
 
-    private lateinit var youLine: TextView
-    private lateinit var statusLine: TextView
-    private lateinit var peerList: LinearLayout
-    private lateinit var matchList: LinearLayout
-    private lateinit var logView: TextView
+    private val permissionRequest = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        home.me?.username?.let { ensureBluetooth(it) }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (!Api.isLoggedIn(this)) return goToOnboarding()
-        setContentView(buildUi())
+        enableEdgeToEdge()
+        signedIn = Api.isLoggedIn(this)
+        devMode = Api.devMode(this)
         BleService.listener = this
-        if (!hasPermissions()) requestPermissions(PERMISSIONS + optionalPermissions(), REQUEST_PERMISSIONS)
-        handler.post(refreshMe)
-        handler.post(prune)
-    }
+        if (signedIn && !hasPermissions()) askPermissions()
 
-    override fun onDestroy() {
-        super.onDestroy()
-        handler.removeCallbacksAndMessages(null)
-        // BleService keeps running; it just stops reporting to this screen.
-        if (BleService.listener === this) BleService.listener = null
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        me?.username?.let { ensureBluetooth(it) }
-    }
-
-    // ---- Server ---------------------------------------------------------
-
-    /** Pulls profile status and matches every 15 s, and starts Bluetooth once the profile is ready. */
-    private val refreshMe = object : Runnable {
-        override fun run() {
-            Api.async({ Api.me(this@MainActivity) }, { message ->
-                serverError = message
-                render()
-                handler.postDelayed(this, REFRESH_MS)
-            }) { result ->
-                serverError = null
-                me = result
-                when (result.profileStatus) {
-                    "ready" -> result.username?.let { ensureBluetooth(it) }
-                    "error" -> return@async goToOnboarding() // shows the error and offers "Log in again"
+        setContent {
+            HarmonizeTheme {
+              // Sets the screen background and the default text color for light and dark mode.
+              Surface(color = MaterialTheme.colorScheme.background, contentColor = MaterialTheme.colorScheme.onBackground) {
+                Crossfade(signedIn, label = "screen") { inApp ->
+                    if (inApp) {
+                        LaunchedEffect(Unit) { pollServer() }
+                        LaunchedEffect(Unit) { prunePeers() }
+                        HomeScreen(
+                            state = home,
+                            devMode = devMode,
+                            serverUrl = Api.serverUrl(this),
+                            onDevModeChange = ::setDev,
+                            onSignOut = ::signOut,
+                        )
+                    } else {
+                        SignInScreen(devMode = devMode, onDevModeChange = ::setDev, onSignedIn = ::onSignedIn)
+                    }
                 }
-                render()
-                handler.postDelayed(this, REFRESH_MS)
+              }
             }
         }
     }
 
-    private fun ensureBluetooth(username: String) {
-        if (!hasPermissions()) return
-        if (getSystemService(BluetoothManager::class.java).adapter?.isEnabled != true) {
-            if (!BleService.isRunning) onLog("Turn Bluetooth on to find people nearby")
-            return
-        }
-        if (BleService.username != username) BleService.start(this, username)
+    override fun onDestroy() {
+        super.onDestroy()
+        // BleService keeps running; it just stops reporting to this screen.
+        if (BleService.listener === this) BleService.listener = null
     }
 
-    private fun logout() {
+    private fun setDev(on: Boolean) {
+        devMode = on
+        Api.setDevMode(this, on)
+    }
+
+    private fun onSignedIn(token: String) {
+        Api.setToken(this, token)
+        home.me = null
+        home.serverError = null
+        signedIn = true
+        if (!hasPermissions()) askPermissions()
+    }
+
+    private fun signOut() {
         BleService.stop(this)
         BleService.setWasOn(this, false)
         Api.setToken(this, null)
-        goToOnboarding()
+        home.me = null
+        home.serverError = null
+        peers.clear()
+        home.peers = emptyList()
+        home.bluetoothOn = false
+        signedIn = false
     }
 
-    private fun goToOnboarding() {
-        startActivity(Intent(this, OnboardingActivity::class.java))
-        finish()
+    // ---- Server ---------------------------------------------------------
+
+    /** Refreshes the profile and matches: every 5 s while setting up, then every 15 s. */
+    private suspend fun pollServer() {
+        while (signedIn) {
+            try {
+                val me = withContext(Dispatchers.IO) { Api.me(this@MainActivity) }
+                home.me = me
+                home.serverError = null
+                if (me.profileStatus == "ready") me.username?.let { ensureBluetooth(it) }
+            } catch (e: Exception) {
+                val message = e.message ?: e.toString()
+                if ("not logged in" in message.lowercase()) return signOut()
+                home.serverError = message
+            }
+            home.bluetoothOn = BleService.isRunning
+            delay(if (home.me?.profileStatus == "pending") 5_000 else 15_000)
+        }
+    }
+
+    private fun ensureBluetooth(username: String) {
+        if (!hasPermissions()) {
+            home.bluetoothProblem = "Harmonize needs the Nearby devices permission to find people around you."
+            return
+        }
+        if (getSystemService(BluetoothManager::class.java).adapter?.isEnabled != true) {
+            home.bluetoothProblem = "Turn on Bluetooth so Harmonize can find people nearby."
+            return
+        }
+        home.bluetoothProblem = null
+        if (BleService.username != username) BleService.start(this, username)
+        home.bluetoothOn = true
     }
 
     private fun hasPermissions() = PERMISSIONS.all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
 
-    /** Only makes BleService's notification visible; everything works without it. */
-    private fun optionalPermissions() =
-        if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.POST_NOTIFICATIONS) else emptyArray()
+    private fun askPermissions() {
+        val notifications = if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.POST_NOTIFICATIONS) else emptyArray()
+        permissionRequest.launch(PERMISSIONS + notifications)
+    }
 
     // ---- BleListener ----------------------------------------------------
 
     override fun onPeer(peer: Peer) {
         peers[peer.key] = peer
+        home.peers = peers.values.sortedBy { it.username }
     }
 
     override fun onMessage(from: String, text: String) {
         onLog("MESSAGE from $from: $text")
-        Toast.makeText(this, "$from: $text", Toast.LENGTH_LONG).show()
     }
 
     override fun onLog(line: String) {
-        logLines.addFirst("${TIME.format(Date())}  $line")
-        while (logLines.size > 100) logLines.removeLast()
-        logView.text = logLines.joinToString("\n")
+        home.log = (listOf("${TIME.format(Date())}  $line") + home.log).take(100)
     }
 
-    // ---- UI -------------------------------------------------------------
-
-    /** Drops anyone not heard from in a while and redraws, once a second. */
-    private val prune = object : Runnable {
-        override fun run() {
+    /** Drops anyone not heard from in a while, once a second. */
+    private suspend fun prunePeers() {
+        while (signedIn) {
             val cutoff = SystemClock.elapsedRealtime() - PEER_TIMEOUT_MS
-            peers.values.removeAll { it.lastSeenMs < cutoff }
-            render()
-            handler.postDelayed(this, 1_000)
+            if (peers.values.removeAll { it.lastSeenMs < cutoff }) home.peers = peers.values.sortedBy { it.username }
+            home.bluetoothOn = BleService.isRunning
+            delay(1_000)
         }
     }
-
-    private fun render() {
-        val me = me
-        youLine.text = when {
-            me?.username != null -> "${me.name ?: ""} @${me.username}".trim()
-            else -> "Loading your profile…"
-        }
-        statusLine.text = when {
-            serverError != null -> "Server: $serverError"
-            me == null -> ""
-            me.done -> "Your match was texted. Reporting is paused (LOOP is off)."
-            me.refreshError != null -> "Daily summary refresh failed: ${me.refreshError}"
-            BleService.isRunning -> "Sharing your username over Bluetooth · match threshold ${(me.threshold * 100).toInt()}%"
-            else -> "Bluetooth not running"
-        }
-
-        peerList.removeAllViews()
-        if (peers.isEmpty()) peerList.addView(text("Nobody yet…").apply { alpha = 0.6f })
-        for (peer in peers.values.sortedBy { it.username }) {
-            peerList.addView(text("@${peer.username}    ${peer.rssi} dBm", 16f).apply { setPadding(0, dp(6), 0, dp(6)) })
-        }
-
-        matchList.removeAllViews()
-        val matches = me?.matches ?: emptyList()
-        if (matches.isEmpty()) matchList.addView(text("No one scored yet").apply { alpha = 0.6f })
-        for (m in matches) {
-            val pct = (m.score * 100).toInt()
-            val name = m.otherName?.let { "$it " } ?: ""
-            val state = when {
-                m.notifiedAt != null -> "texted"
-                m.notifyError != null -> "text failed: ${m.notifyError}"
-                m.matched -> "match"
-                else -> "not a match"
-            }
-            matchList.addView(text("$name@${m.otherUsername}    $pct%    $state\n${m.verdict}", 15f).apply {
-                setPadding(0, dp(8), 0, dp(8))
-                if (m.matched) setTypeface(typeface, Typeface.BOLD)
-            })
-        }
-    }
-
-    private fun buildUi(): View {
-        val column = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(32), dp(20), dp(20))
-        }
-        column.addView(text("Harmony", 26f).apply { setTypeface(typeface, Typeface.BOLD) })
-        youLine = text("", 16f)
-        column.addView(youLine)
-        statusLine = text("", 13f).apply { alpha = 0.7f; setPadding(0, dp(4), 0, 0) }
-        column.addView(statusLine)
-
-        column.addView(header("Nearby"))
-        peerList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        column.addView(peerList)
-
-        column.addView(header("Matches"))
-        matchList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        column.addView(matchList)
-
-        column.addView(header("Log"))
-        logView = text("", 12f).apply { typeface = Typeface.MONOSPACE }
-        column.addView(logView)
-
-        column.addView(Button(this).apply {
-            text = "Log out"
-            setOnClickListener { logout() }
-        })
-        return ScrollView(this).apply { addView(column) }
-    }
-
-    private fun header(label: String) = text(label, 13f).apply {
-        setTypeface(typeface, Typeface.BOLD)
-        setPadding(0, dp(20), 0, dp(4))
-        alpha = 0.7f
-    }
-
-    private fun text(value: String, sizeSp: Float = 15f) = TextView(this).apply {
-        text = value
-        textSize = sizeSp
-    }
-
-    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
     private companion object {
         val PERMISSIONS = arrayOf(
@@ -230,8 +179,6 @@ class MainActivity : Activity(), BleListener {
             Manifest.permission.BLUETOOTH_ADVERTISE,
             Manifest.permission.BLUETOOTH_CONNECT,
         )
-        const val REQUEST_PERMISSIONS = 1
-        const val REFRESH_MS = 15_000L
         const val PEER_TIMEOUT_MS = 15_000L
         val TIME = SimpleDateFormat("HH:mm:ss", Locale.US)
     }

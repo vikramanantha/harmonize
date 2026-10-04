@@ -16,8 +16,8 @@ import java.util.concurrent.Executors
 /**
  * Keeps Method 2 running with the app closed or the screen off. Android requires the
  * ongoing notification for that. Every username read over Bluetooth is reported to
- * the Harmony server, which scores the pair and texts both people on a match.
- * Everything is printed to logcat (tag "BleChat") and forwarded to the screen when
+ * the Harmonize server, which scores the pair and texts both people on a match.
+ * Everything is printed to logcat (tag "Harmonize") and forwarded to the screen when
  * it's open.
  */
 class BleService : Service() {
@@ -122,16 +122,16 @@ class BleService : Service() {
             PendingIntent.FLAG_IMMUTABLE,
         )
         return Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("BleChat is finding people nearby")
-            .setContentText("Sharing \"$name\" over Bluetooth")
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setContentTitle("Harmonize is finding people nearby")
+            .setContentText("Sharing @$name with people around you")
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(openApp)
             .setOngoing(true)
             .build()
     }
 
     companion object {
-        private const val TAG = "BleChat"
+        private const val TAG = "Harmonize"
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "nearby"
         private const val EXTRA_USERNAME = "username"

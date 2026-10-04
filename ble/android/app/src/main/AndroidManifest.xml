@@ -17,14 +17,16 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Talking to the Harmony server. -->
+    <!-- Talking to the Harmonize server. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- usesCleartextTraffic: allows http://<laptop-ip>:3000 during development. -->
     <application
-        android:label="Harmony"
+        android:icon="@mipmap/ic_launcher"
+        android:label="Harmonize"
+        android:roundIcon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"
-        android:theme="@android:style/Theme.DeviceDefault.Light">
+        android:theme="@style/Theme.Harmonize">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -34,11 +36,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <activity
-            android:name=".OnboardingActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize" />
 
         <service
             android:name=".BleService"

@@ -4,102 +4,252 @@ struct ContentView: View {
     @ObservedObject private var store = BleStore.shared
 
     var body: some View {
-        if store.loggedIn {
-            MainView(store: store)
-        } else {
-            OnboardingView(store: store)
+        Group {
+            if store.loggedIn {
+                MainView(store: store)
+            } else {
+                OnboardingView(store: store)
+            }
         }
+        .animation(.easeInOut, value: store.loggedIn)
     }
 }
 
-/// Home screen once logged in: who you are, who's nearby, your matches, and a log.
+/// Home once signed in: your profile, people nearby, matches; plus the log in developer mode.
 struct MainView: View {
     @ObservedObject var store: BleStore
+    @AppStorage("dev_mode") private var devMode = false
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    if let me = store.me, let username = me.username {
-                        Text("\(me.name ?? "") @\(username)").font(.headline)
-                    } else {
-                        Text("Loading your profile…").font(.headline)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    header
+                    profileCard
+                    notices
+                    if store.me?.profile_status == "ready" {
+                        nearby
+                        matchesSection
                     }
-                    Text(statusText).font(.caption).foregroundStyle(statusIsError ? Color.red : Color.secondary)
-                    if store.me?.profile_status == "error" {
-                        Button("Log in again") { store.logout() }
-                    }
+                    if devMode { developer }
                 }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 32)
+            }
+            .background(Color(.systemGroupedBackground))
+            .toolbar(.hidden, for: .navigationBar)
+        }
+        .tint(Brand.violet)
+    }
 
-                Section("Nearby") {
-                    if store.peers.isEmpty { Text("Nobody yet…").foregroundStyle(.secondary) }
-                    ForEach(store.peers) { peer in
-                        HStack {
-                            Text("@\(peer.username)")
-                            Spacer()
-                            Text("\(peer.rssi) dBm").monospacedDigit().foregroundStyle(.secondary)
-                        }
+    // MARK: Sections
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Logo(size: 32)
+            Text("Harmonize").font(.title2.weight(.semibold))
+            Spacer()
+            Menu {
+                Toggle("Developer mode", isOn: $devMode)
+                Button("Sign out", role: .destructive) { store.logout() }
+            } label: {
+                Image(systemName: "ellipsis.circle").font(.title2)
+            }
+        }
+        .padding(.top, 4)
+        .padding(.bottom, 8)
+    }
+
+    private var profileCard: some View {
+        let me = store.me
+        return VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 14) {
+                Text(String((me?.name ?? me?.username ?? "?").prefix(1)).uppercased())
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 56, height: 56)
+                    .background(.white.opacity(0.22), in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(me?.name ?? (me == nil ? "Loading…" : "Setting up"))
+                        .font(.title3.weight(.semibold)).foregroundStyle(.white).lineLimit(1)
+                    if let username = me?.username {
+                        Text("@\(username)").font(.subheadline).foregroundStyle(.white.opacity(0.85))
                     }
-                }
-
-                Section("Matches") {
-                    if matches.isEmpty { Text("No one scored yet").foregroundStyle(.secondary) }
-                    ForEach(matches, id: \.other_username) { m in
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack {
-                                Text(displayName(m)).fontWeight(m.matched ? .bold : .regular)
-                                Spacer()
-                                Text(percent(m.score)).monospacedDigit()
-                            }
-                            Text(m.verdict).font(.caption).foregroundStyle(.secondary)
-                            Text(matchState(m)).font(.caption).foregroundStyle(m.notify_error == nil ? Color.secondary : Color.red)
-                        }
-                    }
-                }
-
-                Section("Log") {
-                    ForEach(Array(store.log.enumerated()), id: \.offset) { _, line in
-                        Text(line).font(.caption.monospaced())
-                    }
-                }
-
-                Section {
-                    Button("Log out", role: .destructive) { store.logout() }
                 }
             }
-            .navigationTitle("Harmony")
+            HStack(spacing: 8) {
+                if me?.profile_status == "ready" && store.bluetoothOn && me?.done != true { LiveDot() }
+                Text(statusLine).font(.caption.weight(.medium)).foregroundStyle(.white)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.white.opacity(0.18), in: Capsule())
         }
+        .padding(22)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Brand.gradient, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .padding(.top, 8)
     }
 
-    private var matches: [Api.Match] { store.me?.matches ?? [] }
-
-    private var statusText: String {
-        if let error = store.serverError { return "Server: \(error)" }
-        guard let me = store.me else { return "" }
+    private var statusLine: String {
+        guard let me = store.me else { return "Getting your profile ready" }
         switch me.profile_status {
-        case "pending": return "Muse is reading your Instagram and saving your taste profile. This can take a few minutes…"
-        case "error": return "Muse failed: \(me.profile_error ?? "unknown error")"
-        default: break
+        case "error": return "Needs attention"
+        case "ready":
+            if me.done { return "Matched, paused" }
+            return store.bluetoothOn ? "Looking for people nearby" : "Bluetooth is off"
+        default: return "Getting your profile ready"
         }
-        if me.done { return "Your match was texted. Reporting is paused (LOOP is off)." }
-        if let error = me.refresh_error { return "Daily summary refresh failed: \(error)" }
-        return "Sharing your username over Bluetooth · match threshold \(Int(me.match_threshold * 100))%"
     }
 
-    private var statusIsError: Bool {
-        store.serverError != nil || store.me?.profile_status == "error" || store.me?.refresh_error != nil
+    @ViewBuilder
+    private var notices: some View {
+        if let error = store.serverError {
+            MessageCard(text: devMode ? "Server: \(error)" : Friendly.error(error), isError: true, mono: devMode).padding(.top, 16)
+        }
+        if let me = store.me {
+            switch me.profile_status {
+            case "pending":
+                CardBox {
+                    HStack(spacing: 16) {
+                        ProgressView().controlSize(.large).tint(Brand.violet)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Muse is reading your Instagram").font(.headline)
+                            Text("This takes a few minutes. You can leave the app; we'll start finding people as soon as it's done.")
+                                .font(.subheadline).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(.top, 16)
+            case "error":
+                MessageCard(text: devMode ? (me.profile_error ?? "") : Friendly.profileError(me.profile_error), isError: true, mono: devMode)
+                    .padding(.top, 16)
+                GradientButton(title: "Sign in again", busy: false) { store.logout() }.padding(.top, 12)
+            default:
+                if me.done {
+                    MessageCard(text: "You've been matched! We texted you both, so go say hi.", isError: false).padding(.top, 16)
+                }
+                if devMode, let refresh = me.refresh_error {
+                    MessageCard(text: "Daily refresh failed: \(refresh)", isError: true, mono: true).padding(.top, 16)
+                }
+            }
+        }
     }
 
-    private func displayName(_ m: Api.Match) -> String {
-        let name = m.other_name.map { "\($0) " } ?? ""
-        return "\(name)@\(m.other_username)"
+    private var nearby: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sectionTitle("Nearby", trailing: store.peers.isEmpty ? nil : "\(store.peers.count)")
+            if store.peers.isEmpty {
+                emptyCard("No one nearby yet", "Keep Harmonize running. We'll find people around you who are on Harmonize too.")
+            } else {
+                CardBox {
+                    ForEach(Array(store.peers.enumerated()), id: \.element.id) { index, peer in
+                        if index > 0 { Divider().padding(.vertical, 12) }
+                        HStack(spacing: 12) {
+                            Avatar(name: peer.username, size: 40)
+                            Text("@\(peer.username)").font(.body)
+                            Spacer()
+                            SignalBars(rssi: peer.rssi)
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    private func percent(_ score: Double) -> String { "\(Int(score * 100))%" }
+    private var matchesSection: some View {
+        let matches = store.me?.matches ?? []
+        return VStack(alignment: .leading, spacing: 12) {
+            sectionTitle("Matches", trailing: matches.isEmpty ? nil : "\(matches.count)")
+            if matches.isEmpty {
+                emptyCard("No matches yet", "When someone who watches the same kind of reels is nearby, they'll show up here.")
+            }
+            ForEach(matches, id: \.other_username) { match in
+                MatchCard(match: match)
+            }
+        }
+    }
 
-    private func matchState(_ m: Api.Match) -> String {
-        if m.notified_at != nil { return "texted" }
-        if let error = m.notify_error { return "text failed: \(error)" }
-        return m.matched ? "match" : "not a match"
+    private var developer: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sectionTitle("Developer", trailing: nil)
+            CardBox {
+                devLine("Server", Api.serverUrl)
+                devLine("Bluetooth", store.bluetoothOn ? "running" : "stopped")
+                if let me = store.me {
+                    devLine("Profile", me.profile_status)
+                    devLine("Match threshold", "\(Int(me.match_threshold * 100))%")
+                    devLine("LOOP", me.loop ? "true" : "false")
+                }
+            }
+            sectionTitle("Log", trailing: nil)
+            CardBox {
+                if store.log.isEmpty { Text("Nothing yet").foregroundStyle(.secondary) }
+                ForEach(Array(store.log.enumerated()), id: \.offset) { _, line in
+                    Text(line).font(.caption2.monospaced()).padding(.vertical, 3)
+                }
+            }
+        }
+    }
+
+    // MARK: Pieces
+
+    private func sectionTitle(_ title: String, trailing: String?) -> some View {
+        HStack(alignment: .lastTextBaseline) {
+            Text(title).font(.title3.weight(.semibold))
+            Spacer()
+            if let trailing { Text(trailing).font(.caption.weight(.medium)).foregroundStyle(.secondary) }
+        }
+        .padding(.horizontal, 4)
+        .padding(.top, 24)
+        .padding(.bottom, 10)
+    }
+
+    private func emptyCard(_ title: String, _ body: String) -> some View {
+        CardBox {
+            Text(title).font(.headline)
+            Text(body).font(.subheadline).foregroundStyle(.secondary).padding(.top, 4)
+        }
+    }
+
+    private func devLine(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .top) {
+            Text(label).font(.subheadline).foregroundStyle(.secondary).frame(width: 120, alignment: .leading)
+            Text(value).font(.subheadline.monospaced())
+        }
+        .padding(.vertical, 3)
+    }
+}
+
+private struct MatchCard: View {
+    var match: Api.Match
+
+    var body: some View {
+        CardBox {
+            HStack(spacing: 16) {
+                ScoreRing(score: match.score, highlight: match.matched)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(match.other_name ?? "@\(match.other_username)").font(.headline).lineLimit(1)
+                    if match.other_name != nil {
+                        Text("@\(match.other_username)").font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    Text(match.verdict).font(.subheadline).padding(.top, 4)
+                }
+            }
+            badge.padding(.top, 12)
+        }
+    }
+
+    @ViewBuilder
+    private var badge: some View {
+        if match.notified_at != nil {
+            Pill(text: "Texted you both", tint: Brand.pink)
+        } else if match.notify_error != nil {
+            Pill(text: "Couldn't send the text", tint: .red)
+        } else if match.matched {
+            Pill(text: "It's a match", tint: Brand.violet)
+        } else {
+            Pill(text: "Different tastes", tint: .secondary)
+        }
     }
 }

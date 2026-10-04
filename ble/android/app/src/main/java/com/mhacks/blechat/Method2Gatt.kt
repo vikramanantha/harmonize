@@ -63,7 +63,7 @@ package com.mhacks.blechat
  *    "Unrestricted". Samsung, Xiaomi and similar phones kill background apps
  *    without this.
  * 5. To watch the printed usernames on the Mac:
- *        ~/Library/Android/sdk/platform-tools/adb logcat -s BleChat
+ *        ~/Library/Android/sdk/platform-tools/adb logcat -s Harmonize
  *
  * ---------------------------------------------------------------------------
  * Deploy to your friend's iPhone

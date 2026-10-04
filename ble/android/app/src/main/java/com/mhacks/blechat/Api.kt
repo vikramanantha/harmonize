@@ -10,7 +10,7 @@ import java.net.URL
 import java.util.concurrent.Executors
 
 /**
- * The Harmony server (mhacks26/app/api/app/...). Calls are synchronous and throw
+ * The Harmonize server (mhacks26/app/api/app/...). Calls are synchronous and throw
  * [ApiException] with the server's message; use [Api.async] from the UI.
  * The server URL and device token live in SharedPreferences.
  */
@@ -20,6 +20,7 @@ object Api {
     private const val PREFS = "harmony"
     private const val PREF_SERVER = "server_url"
     private const val PREF_TOKEN = "device_token"
+    private const val PREF_DEV = "dev_mode"
 
     private val executor = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -56,6 +57,13 @@ object Api {
 
     fun setServerUrl(context: Context, url: String) {
         prefs(context).edit().putString(PREF_SERVER, url.trim().trimEnd('/')).apply()
+    }
+
+    /** Developer mode: shows the log, server details and raw errors. */
+    fun devMode(context: Context) = prefs(context).getBoolean(PREF_DEV, false)
+
+    fun setDevMode(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean(PREF_DEV, on).apply()
     }
 
     fun setToken(context: Context, token: String?) {

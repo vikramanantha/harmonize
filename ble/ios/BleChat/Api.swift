@@ -1,6 +1,6 @@
 import Foundation
 
-/// The Harmony server (mhacks26/app/api/app/*). Every call throws `ApiError`
+/// The Harmonize server (mhacks26/app/api/app/*). Every call throws `ApiError`
 /// with the server's message on failure. Server URL and device token are in
 /// UserDefaults.
 enum ApiError: LocalizedError {

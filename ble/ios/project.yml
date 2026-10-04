@@ -13,9 +13,9 @@ targets:
     info:
       path: BleChat/Info.plist
       properties:
-        CFBundleDisplayName: Harmony
+        CFBundleDisplayName: Harmonize
         UILaunchScreen: {}
-        NSBluetoothAlwaysUsageDescription: Harmony uses Bluetooth to find people nearby who watch the same reels.
+        NSBluetoothAlwaysUsageDescription: Harmonize uses Bluetooth to find people nearby who watch the same reels.
         # Allows http://<laptop-ip>:3000 during development; ngrok URLs are https anyway.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
@@ -40,3 +40,4 @@ targets:
         # Your Apple ID's team (Xcode > Settings > Accounts). Kept here so `xcodegen` doesn't drop it.
         DEVELOPMENT_TEAM: 98SHJPG486
         TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

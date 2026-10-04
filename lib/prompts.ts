@@ -24,7 +24,7 @@ export function buildMusePrompt(callbackToken: string): string {
  */
 export function buildSetupCheckPrompt(checkToken: string): string {
   return [
-    "Harmony setup check. Send this test data to Harmony's server with exactly this one command, then reply with the server's answer and nothing else:",
+    "Harmonize setup check. Send this test data to Harmonize's server with exactly this one command, then reply with the server's answer and nothing else:",
     "",
     `curl -sS -X POST "${config.publicUrl}/api/app/muse/setup-check" -H "Content-Type: application/json" -d '{"check":"${checkToken}","name":"Setup Check","username":"setup.check","summary":"Test data so this connection gets approved before the real profile is sent."}'`,
   ].join("\n");

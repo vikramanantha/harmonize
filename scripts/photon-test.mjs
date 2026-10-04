@@ -22,7 +22,7 @@ try {
   const im = imessage(app);
   const user = await im.user(to);
   const dm = await im.space.create(user);
-  const message = await dm.send("Harmony test: Photon is connected.");
+  const message = await dm.send("Harmonize test: Photon is connected.");
   console.log("sent", message?.id ?? "(no message id returned)");
 } finally {
   await app.stop();
