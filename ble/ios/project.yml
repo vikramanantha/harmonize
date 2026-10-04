@@ -1,0 +1,27 @@
+# XcodeGen spec: `brew install xcodegen && xcodegen` writes BleChat.xcodeproj.
+# Deploy steps: see the header of android/app/src/main/java/com/mhacks/blechat/Method1Advertise.kt.
+name: BleChat
+options:
+  bundleIdPrefix: com.mhacks
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  BleChat:
+    type: application
+    platform: iOS
+    sources: [BleChat]
+    info:
+      path: BleChat/Info.plist
+      properties:
+        CFBundleDisplayName: BleChat
+        UILaunchScreen: {}
+        NSBluetoothAlwaysUsageDescription: BleChat uses Bluetooth to find people nearby and swap usernames and messages.
+        # Method 2 keeps scanning and hosting while the app is in the background.
+        UIBackgroundModes: [bluetooth-central, bluetooth-peripheral]
+    settings:
+      base:
+        # Free Apple IDs need a bundle ID nobody else has used: change "mhacks" to your name.
+        PRODUCT_BUNDLE_IDENTIFIER: com.mhacks.blechat
+        SWIFT_VERSION: "5.0"
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
