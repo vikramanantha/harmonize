@@ -224,15 +224,14 @@ async function runWithConnectionTest(
   console.log(tag, clicked ? "Connection test passed; Muse is reading Instagram" : `Connection test passed (${host} was already allowed); Muse is reading Instagram`);
 
   if (useDms) {
-    // Muse may ask to turn on Instagram messages while it works. The person agreed
-    // to that at sign-up, so accept it ("Always allow") while the browser session
-    // lasts, or until Muse reports back.
+    // The person is fine with Instagram messages access being enabled, so click
+    // the connection and approval controls while the browser session lasts or until Muse reports back.
     const profileDone = () =>
       (db().prepare("SELECT callback_token FROM accounts WHERE id = ?").get(accountId) as { callback_token: string | null }).callback_token === null;
     const watchFor = Math.max(0, sessionEnds - Date.now() - 20_000);
     const approved = await approveInstagram(page, profileDone, watchFor);
     console.log(tag, approved
-      ? "Approved Instagram messages for Muse (\"Always allow\")"
+      ? "Handled Instagram messages connection for Muse using the user's stated preference"
       : profileDone() ? "Muse finished without asking about Instagram messages" : "No Instagram messages card appeared while the session lasted");
   }
 }

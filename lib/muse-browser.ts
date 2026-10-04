@@ -171,12 +171,40 @@ export async function approveSite(page: Page, host: string, done: () => boolean,
 }
 
 /**
- * Same as approveSite, for Muse's permission card about Instagram messages (for
- * people who ticked "Include reels from my Instagram messages"). Only a card
- * that names Instagram and asks to allow Muse is touched.
+ * Handles Connect messages, the Instagram messages dialog's Connect button,
+ * and Muse's permission card when Instagram messages are requested.
  */
 export async function approveInstagram(page: Page, done: () => boolean, timeoutMs: number): Promise<boolean> {
-  return approveCard(page, /allow muse\b.*instagram|instagram.*\ballow muse/i, "Instagram", done, timeoutMs);
+  const deadline = Date.now() + timeoutMs;
+  let clicked = false;
+  let startedConnection = false;
+  let confirmedConnection = false;
+  let allowed = false;
+  while (Date.now() < deadline && !done()) {
+    // This watcher is invoked only when useDms is true. Match the explicit
+    // messages action; never click an unrelated generic Connect button.
+    const messages = page.getByRole("button", { name: /^\s*connect(\s+instagram)?\s+messages\s*$/i });
+    if (!startedConnection && await messages.count() === 1 && await messages.isVisible()) {
+      await messages.click();
+      startedConnection = true;
+      clicked = true;
+    }
+    // The follow-up Connect action must belong to the Instagram messages dialog.
+    const dialog = page.getByRole("dialog").filter({ hasText: /instagram/i }).filter({ hasText: /messages/i });
+    const connect = dialog.getByRole("button", { name: /^\s*connect\s*$/i });
+    if (!confirmedConnection && await connect.count() === 1 && await connect.isVisible()) {
+      await connect.click();
+      confirmedConnection = true;
+      clicked = true;
+    }
+    const permission = page.getByText(/allow muse\b.*instagram|instagram.*\ballow muse/i).first();
+    if (!allowed && await permission.isVisible().catch(() => false)) {
+      clicked = await approveCard(page, /allow muse\b.*instagram|instagram.*\ballow muse/i, "Instagram", done, 1500) || clicked;
+      allowed = true;
+    }
+    await page.waitForTimeout(1000);
+  }
+  return clicked;
 }
 
 async function approveCard(page: Page, cardText: RegExp, what: string, done: () => boolean, timeoutMs: number): Promise<boolean> {
