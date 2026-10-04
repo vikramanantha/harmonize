@@ -50,6 +50,12 @@ protocol BleListener: AnyObject {
     func onPeer(_ peer: Peer)
     func onMessage(from: String, text: String)
     func onLog(_ line: String)
+    /// Method 2 read `username` from a nearby phone (every read, about every 30 s per phone).
+    func onUsernameRead(_ username: String)
+}
+
+extension BleListener {
+    func onUsernameRead(_ username: String) {}
 }
 
 /// `s` cut to at most `max` UTF-8 bytes without splitting a character.

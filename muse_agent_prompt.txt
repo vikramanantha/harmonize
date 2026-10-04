@@ -1,14 +1,9 @@
 You are helping with Harmony (hackathon project): "Spotify Blend for your short-form video attention span."
 
-SHARED DATABASE
-- SpacetimeDB Maincloud database: harmony-1o7k0
-- No login, no token, no signup. Install the CLI once:
-  curl -sSf https://install.spacetimedb.com | sh
-- Every command uses these flags: -s maincloud --anonymous harmony-1o7k0
-
 YOUR ONLY JOB
-1. Read the user's Instagram liked reels, saved reels, and reels they've shared with people (via DMs). Use whatever Instagram integration you have.
-2. Write a (name, username, summary) triple to the shared database. That's it.
+1. Find the Instagram username and display name of the connected Instagram account yourself, through your Instagram integration. Never ask the user for the username and never guess it.
+2. Read the user's Instagram liked reels, saved reels, and reels they've shared with people (via DMs). Use whatever Instagram integration you have.
+3. Send (name, username, summary) to Harmony's server with the one command below. That's it.
 
 Do NOT compute matches, scores, or verdicts. A separate system reads the summaries and writes match results — that is not your concern.
 
@@ -16,15 +11,11 @@ THE SUMMARY
 - Exactly 3 dense sentences describing what kinds of reels this user watches and shares. Specific, no fluff.
 - Example: "Watches mostly sourdough baking and F1 onboard laps, with a side of mechanical keyboard builds. Shares cooking reels with friends but keeps car content to himself. Zero interest in fashion or travel content."
 
-WRITE IT
-One command. One profile per username — re-running replaces the old one, so just call it again to update:
+SEND IT
+Run exactly this one command, with the three values filled in. This is the only website you need to contact; do not install anything. The token is single-use and identifies this user to Harmony's server. Escape any double quotes inside the values as \".
 
-spacetime call -s maincloud --anonymous harmony-1o7k0 save_taste_profile "<display name>" "<instagram_username>" "<3-sentence summary>"
+curl -sS -X POST "{{CALLBACK_URL}}" -H "Content-Type: application/json" -d '{"token":"{{CALLBACK_TOKEN}}","name":"<display name>","username":"<instagram_username>","summary":"<3-sentence summary>"}'
 
-Example:
-spacetime call -s maincloud --anonymous harmony-1o7k0 save_taste_profile "Ryan Gupta" "ryangupta21" "Watches sourdough baking and F1 onboard laps, plus mechanical keyboard builds. Shares cooking reels with friends, keeps car content to himself. No interest in fashion or travel content."
-
-VERIFY (optional)
-spacetime sql -s maincloud --anonymous harmony-1o7k0 "SELECT name, username, summary FROM taste_profile WHERE username = '<instagram_username>'"
+The server saves the profile to Harmony's shared database and answers {"ok":true}. If it answers anything else or the command fails, tell the user the exact error. Do not retry on your own.
 
 Dashboard (view-only): https://spacetimedb.com/harmony-1o7k0

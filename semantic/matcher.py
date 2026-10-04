@@ -1,9 +1,13 @@
-import psycopg2
-from pgvector.psycopg2 import register_vector
 from sentence_transformers import SentenceTransformer
 
 # 1. Initialize Hugging Face model (outputs 384-dimensional vectors)
 model = SentenceTransformer("all-MiniLM-L6-v2")
+
+
+def similarity(summary_a: str, summary_b: str) -> float:
+  """Cosine similarity of two summaries, the same number pgvector's <=> gives (1 - distance)."""
+  a, b = model.encode([summary_a, summary_b], normalize_embeddings=True)
+  return float(a @ b)
 
 # Replace with your actual NeonDB connection string
 DATABASE_URL = "postgresql://user:password@your-neon-host.neon.tech/neondb?sslmode=require"
@@ -11,6 +15,8 @@ DATABASE_URL = "postgresql://user:password@your-neon-host.neon.tech/neondb?sslmo
 
 def generate_and_store_profile(user_id: str, summary_paragraph: str):
   """Generates a 384-dim vector from text and saves/updates it in NeonDB."""
+  import psycopg2
+  from pgvector.psycopg2 import register_vector
   embedding = model.encode(summary_paragraph).tolist()
 
   conn = psycopg2.connect(DATABASE_URL)
@@ -34,6 +40,8 @@ def generate_and_store_profile(user_id: str, summary_paragraph: str):
 
 def compare_user_profiles(user_id_1: str, user_id_2: str) -> float:
   """Compares two user profiles using pgvector cosine distance calculation."""
+  import psycopg2
+  from pgvector.psycopg2 import register_vector
   conn = psycopg2.connect(DATABASE_URL)
   register_vector(conn)
   cur = conn.cursor()

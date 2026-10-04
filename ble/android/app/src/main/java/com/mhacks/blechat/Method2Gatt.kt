@@ -417,12 +417,13 @@ class Method2Gatt(private val context: Context, private val listener: BleListene
 
     private val timeout = Runnable { finish(ok = false, reason = "timed out") }
 
+    /** [reason] null with [ok] false: failed quietly (a phone that isn't running BleChat). */
     private fun finish(ok: Boolean, reason: String? = null, retryMs: Long = RETRY_MS) {
         val op = current ?: return
         main.removeCallbacks(timeout)
         if (!ok) {
             val what = if (op is Op.Send) "sending to" else "reading name from"
-            listener.onLog("Method 2: $what ${names[op.device.address] ?: op.device.address} failed: $reason")
+            if (reason != null) listener.onLog("Method 2: $what ${names[op.device.address] ?: op.device.address} failed: $reason")
             if (op is Op.ReadName) nextReadAtMs[op.device.address] = SystemClock.elapsedRealtime() + retryMs
         }
         // close() right after disconnect(): no callback comes back, which is what we want.
@@ -455,11 +456,7 @@ class Method2Gatt(private val context: Context, private val listener: BleListene
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) = onMain(g) {
             val service = g.getService(BleIds.M2_SERVICE)
                 // Usually an iPhone whose other apps happened to set our overflow bits.
-                ?: return@onMain finish(
-                    ok = false,
-                    reason = "no BleChat service (status $status, found ${g.services.map { it.uuid }})",
-                    retryMs = NOT_BLECHAT_RETRY_MS,
-                )
+                ?: return@onMain finish(ok = false, reason = null, retryMs = NOT_BLECHAT_RETRY_MS)
             when (val op = current) {
                 is Op.ReadName -> {
                     val ch = service.getCharacteristic(BleIds.USERNAME_CHAR)
@@ -507,6 +504,7 @@ class Method2Gatt(private val context: Context, private val listener: BleListene
         names[address] = name
         nextReadAtMs[address] = SystemClock.elapsedRealtime() + REREAD_MS
         listener.onPeer(Peer("m2:$address", name, rssis[address] ?: 0, vias[address] ?: "GATT", op.device))
+        listener.onUsernameRead(name)
         finish(ok = true)
     }
 

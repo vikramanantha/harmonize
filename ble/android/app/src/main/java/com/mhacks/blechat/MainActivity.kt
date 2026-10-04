@@ -2,8 +2,8 @@ package com.mhacks.blechat
 
 import android.Manifest
 import android.app.Activity
-import android.app.AlertDialog
 import android.bluetooth.BluetoothManager
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
 import android.os.Build
@@ -11,13 +11,9 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import android.text.InputFilter
-import android.text.InputType
 import android.view.View
-import android.widget.EditText
+import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.RadioButton
-import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -26,58 +22,97 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * One screen: a username, an Off / Method 1 / Method 2 switch, who's nearby, and a log.
- * Only one method runs at a time; both sides must pick the same one to see each other.
- * Method 1 runs only while this screen is open. Method 2 runs in BleService, so it
- * keeps going after the screen closes. See Method1Advertise.kt and Method2Gatt.kt
- * for how each works and how to deploy.
+ * Home screen once onboarding is done: who you are, who's nearby, your matches,
+ * and a log. Bluetooth (Method 2, in BleService) starts by itself with the
+ * Instagram username the server reported, and keeps running when this screen
+ * closes. Method1Advertise.kt is kept for reference but no longer used.
  */
 class MainActivity : Activity(), BleListener {
-
-    private enum class Mode { OFF, ADVERT, GATT }
 
     private val handler = Handler(Looper.getMainLooper())
     private val peers = LinkedHashMap<String, Peer>()
     private val logLines = ArrayDeque<String>()
-    private var mode = Mode.OFF
+    private var me: Api.Me? = null
+    private var serverError: String? = null
 
-    private lateinit var method1: Method1Advertise
-    private lateinit var usernameInput: EditText
-    private lateinit var modeGroup: RadioGroup
-    private lateinit var nearbyTitle: TextView
+    private lateinit var youLine: TextView
+    private lateinit var statusLine: TextView
     private lateinit var peerList: LinearLayout
+    private lateinit var matchList: LinearLayout
     private lateinit var logView: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        method1 = Method1Advertise(this, this)
+        if (!Api.isLoggedIn(this)) return goToOnboarding()
         setContentView(buildUi())
         BleService.listener = this
-        // Method 2 may still be running from before this screen was closed.
-        val running = BleService.username
-        if (running != null) {
-            mode = Mode.GATT
-            usernameInput.setText(running)
-            usernameInput.isEnabled = false
-            modeGroup.check(ID_GATT)
-        } else if (BleService.wasOn(this) && hasPermissions()) {
-            // Method 2 was on last time (e.g. before a reinstall or reboot): turn it back on.
-            usernameInput.setText(BleService.savedUsername(this))
-            modeGroup.check(ID_GATT)
-        }
         if (!hasPermissions()) requestPermissions(PERMISSIONS + optionalPermissions(), REQUEST_PERMISSIONS)
-        handler.post(refresh)
+        handler.post(refreshMe)
+        handler.post(prune)
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        handler.removeCallbacks(refresh)
-        method1.stop()
+        handler.removeCallbacksAndMessages(null)
         // BleService keeps running; it just stops reporting to this screen.
         if (BleService.listener === this) BleService.listener = null
     }
 
-    // ---- BleListener ------------------------------------------------------
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        me?.username?.let { ensureBluetooth(it) }
+    }
+
+    // ---- Server ---------------------------------------------------------
+
+    /** Pulls profile status and matches every 15 s, and starts Bluetooth once the profile is ready. */
+    private val refreshMe = object : Runnable {
+        override fun run() {
+            Api.async({ Api.me(this@MainActivity) }, { message ->
+                serverError = message
+                render()
+                handler.postDelayed(this, REFRESH_MS)
+            }) { result ->
+                serverError = null
+                me = result
+                when (result.profileStatus) {
+                    "ready" -> result.username?.let { ensureBluetooth(it) }
+                    "error" -> return@async goToOnboarding() // shows the error and offers "Log in again"
+                }
+                render()
+                handler.postDelayed(this, REFRESH_MS)
+            }
+        }
+    }
+
+    private fun ensureBluetooth(username: String) {
+        if (!hasPermissions()) return
+        if (getSystemService(BluetoothManager::class.java).adapter?.isEnabled != true) {
+            if (!BleService.isRunning) onLog("Turn Bluetooth on to find people nearby")
+            return
+        }
+        if (BleService.username != username) BleService.start(this, username)
+    }
+
+    private fun logout() {
+        BleService.stop(this)
+        BleService.setWasOn(this, false)
+        Api.setToken(this, null)
+        goToOnboarding()
+    }
+
+    private fun goToOnboarding() {
+        startActivity(Intent(this, OnboardingActivity::class.java))
+        finish()
+    }
+
+    private fun hasPermissions() = PERMISSIONS.all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
+
+    /** Only makes BleService's notification visible; everything works without it. */
+    private fun optionalPermissions() =
+        if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.POST_NOTIFICATIONS) else emptyArray()
+
+    // ---- BleListener ----------------------------------------------------
 
     override fun onPeer(peer: Peer) {
         peers[peer.key] = peer
@@ -94,48 +129,10 @@ class MainActivity : Activity(), BleListener {
         logView.text = logLines.joinToString("\n")
     }
 
-    // ---- Mode switching ---------------------------------------------------
-
-    private fun switchMode(newMode: Mode) {
-        method1.stop()
-        BleService.stop(this)
-        peers.clear()
-        mode = Mode.OFF
-        usernameInput.isEnabled = true
-        BleService.setWasOn(this, newMode == Mode.GATT)
-        if (newMode == Mode.OFF) return render()
-
-        if (!hasPermissions()) {
-            onLog("Allow \"Nearby devices\" first")
-            requestPermissions(PERMISSIONS + optionalPermissions(), REQUEST_PERMISSIONS)
-            return modeGroup.check(ID_OFF)
-        }
-        if (getSystemService(BluetoothManager::class.java).adapter?.isEnabled != true) {
-            onLog("Turn Bluetooth on first")
-            return modeGroup.check(ID_OFF)
-        }
-
-        val username = usernameInput.text.toString().replace('\n', ' ').trim().ifEmpty { "anon" }
-        usernameInput.isEnabled = false // the running method already broadcast the old one
-        mode = newMode
-        when (newMode) {
-            Mode.ADVERT -> method1.start(username)
-            Mode.GATT -> BleService.start(this, username)
-            Mode.OFF -> Unit
-        }
-        render()
-    }
-
-    private fun hasPermissions() = PERMISSIONS.all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
-
-    /** Only makes BleService's notification visible; everything works without it. */
-    private fun optionalPermissions() =
-        if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.POST_NOTIFICATIONS) else emptyArray()
-
-    // ---- UI ---------------------------------------------------------------
+    // ---- UI -------------------------------------------------------------
 
     /** Drops anyone not heard from in a while and redraws, once a second. */
-    private val refresh = object : Runnable {
+    private val prune = object : Runnable {
         override fun run() {
             val cutoff = SystemClock.elapsedRealtime() - PEER_TIMEOUT_MS
             peers.values.removeAll { it.lastSeenMs < cutoff }
@@ -145,34 +142,43 @@ class MainActivity : Activity(), BleListener {
     }
 
     private fun render() {
-        nearbyTitle.text = if (mode == Mode.GATT) "Nearby (tap to message)" else "Nearby"
-        peerList.removeAllViews()
-        if (peers.isEmpty()) {
-            peerList.addView(text(if (mode == Mode.OFF) "Pick a method to start" else "Nobody yet…").apply { alpha = 0.6f })
+        val me = me
+        youLine.text = when {
+            me?.username != null -> "${me.name ?: ""} @${me.username}".trim()
+            else -> "Loading your profile…"
         }
-        for (peer in peers.values.sortedBy { it.username }) {
-            val row = text("${peer.username}    ${peer.rssi} dBm    via ${peer.via}", sizeSp = 17f).apply {
-                setPadding(0, dp(10), 0, dp(10))
-            }
-            if (mode == Mode.GATT && peer.device != null) row.setOnClickListener { showSendDialog(peer) }
-            peerList.addView(row)
+        statusLine.text = when {
+            serverError != null -> "Server: $serverError"
+            me == null -> ""
+            me.done -> "Your match was texted. Reporting is paused (LOOP is off)."
+            me.refreshError != null -> "Daily summary refresh failed: ${me.refreshError}"
+            BleService.isRunning -> "Sharing your username over Bluetooth · match threshold ${(me.threshold * 100).toInt()}%"
+            else -> "Bluetooth not running"
         }
-    }
 
-    private fun showSendDialog(peer: Peer) {
-        val input = EditText(this).apply {
-            hint = "Message"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+        peerList.removeAllViews()
+        if (peers.isEmpty()) peerList.addView(text("Nobody yet…").apply { alpha = 0.6f })
+        for (peer in peers.values.sortedBy { it.username }) {
+            peerList.addView(text("@${peer.username}    ${peer.rssi} dBm", 16f).apply { setPadding(0, dp(6), 0, dp(6)) })
         }
-        AlertDialog.Builder(this)
-            .setTitle("Message ${peer.username}")
-            .setView(input)
-            .setPositiveButton("Send") { _, _ ->
-                val text = input.text.toString().trim()
-                if (text.isNotEmpty()) BleService.send(peer, text)
+
+        matchList.removeAllViews()
+        val matches = me?.matches ?: emptyList()
+        if (matches.isEmpty()) matchList.addView(text("No one scored yet").apply { alpha = 0.6f })
+        for (m in matches) {
+            val pct = (m.score * 100).toInt()
+            val name = m.otherName?.let { "$it " } ?: ""
+            val state = when {
+                m.notifiedAt != null -> "texted"
+                m.notifyError != null -> "text failed: ${m.notifyError}"
+                m.matched -> "match"
+                else -> "not a match"
             }
-            .setNegativeButton("Cancel", null)
-            .show()
+            matchList.addView(text("$name@${m.otherUsername}    $pct%    $state\n${m.verdict}", 15f).apply {
+                setPadding(0, dp(8), 0, dp(8))
+                if (m.matched) setTypeface(typeface, Typeface.BOLD)
+            })
+        }
     }
 
     private fun buildUi(): View {
@@ -180,45 +186,32 @@ class MainActivity : Activity(), BleListener {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(32), dp(20), dp(20))
         }
-        column.addView(text("BleChat", sizeSp = 26f).apply { setTypeface(typeface, Typeface.BOLD) })
+        column.addView(text("Harmony", 26f).apply { setTypeface(typeface, Typeface.BOLD) })
+        youLine = text("", 16f)
+        column.addView(youLine)
+        statusLine = text("", 13f).apply { alpha = 0.7f; setPadding(0, dp(4), 0, 0) }
+        column.addView(statusLine)
 
-        column.addView(header("Instagram username"))
-        usernameInput = EditText(this).apply {
-            setText("android.${(100..999).random()}")
-            setSingleLine()
-            filters = arrayOf(InputFilter.LengthFilter(BleIds.MAX_USERNAME_BYTES))
-        }
-        column.addView(usernameInput)
-
-        column.addView(header("Method"))
-        modeGroup = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
-        listOf(ID_OFF to "Off", ID_ADVERT to "1: Advert", ID_GATT to "2: GATT").forEach { (id, label) ->
-            modeGroup.addView(RadioButton(this).apply { this.id = id; text = label })
-        }
-        modeGroup.check(ID_OFF)
-        modeGroup.setOnCheckedChangeListener { _, checkedId ->
-            val newMode = when (checkedId) {
-                ID_ADVERT -> Mode.ADVERT
-                ID_GATT -> Mode.GATT
-                else -> Mode.OFF
-            }
-            if (newMode != mode) switchMode(newMode)
-        }
-        column.addView(modeGroup)
-
-        nearbyTitle = header("Nearby")
-        column.addView(nearbyTitle)
+        column.addView(header("Nearby"))
         peerList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         column.addView(peerList)
 
+        column.addView(header("Matches"))
+        matchList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        column.addView(matchList)
+
         column.addView(header("Log"))
-        logView = text("", sizeSp = 12f).apply { typeface = Typeface.MONOSPACE }
+        logView = text("", 12f).apply { typeface = Typeface.MONOSPACE }
         column.addView(logView)
 
+        column.addView(Button(this).apply {
+            text = "Log out"
+            setOnClickListener { logout() }
+        })
         return ScrollView(this).apply { addView(column) }
     }
 
-    private fun header(label: String) = text(label, sizeSp = 13f).apply {
+    private fun header(label: String) = text(label, 13f).apply {
         setTypeface(typeface, Typeface.BOLD)
         setPadding(0, dp(20), 0, dp(4))
         alpha = 0.7f
@@ -238,9 +231,7 @@ class MainActivity : Activity(), BleListener {
             Manifest.permission.BLUETOOTH_CONNECT,
         )
         const val REQUEST_PERMISSIONS = 1
-        const val ID_OFF = 1
-        const val ID_ADVERT = 2
-        const val ID_GATT = 3
+        const val REFRESH_MS = 15_000L
         const val PEER_TIMEOUT_MS = 15_000L
         val TIME = SimpleDateFormat("HH:mm:ss", Locale.US)
     }

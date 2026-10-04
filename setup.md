@@ -1,78 +1,112 @@
-# BleChat setup
+# Harmony setup
 
-How to install BleChat on an Android phone and an iPhone and check that they find each other over Bluetooth (Method 2).
+Harmony matches people nearby by what they watch on Instagram Reels. Muse reads each person's Instagram and writes a taste profile to the shared SpacetimeDB; the phones find each other over Bluetooth; the server scores pairs and texts both people through Photon when they match.
 
-- Android app: `ble/android`
-- iPhone app: `ble/ios`
-- How Method 2 works, and what does and doesn't work when an app is in the background: see the header of `ble/android/app/src/main/java/com/mhacks/blechat/Method2Gatt.kt`.
+```
+phone (Android/iOS)  --Bluetooth-->  phone
+   |  reports "I'm near @username"
+   v
+Harmony server (Next.js, this repo)  --> semantic/service.py (similarity)
+   |  login via Browserbase, prompts Muse      --> SpacetimeDB harmony-1o7k0 (taste_profile, match_result)
+   |                                           --> Photon (iMessage)
+Muse (Meta's cloud) --writes taste_profile, then calls back--> server
+```
 
-## What you need
+## 1. Server
 
-- A Mac with Homebrew and Android Studio, both already installed on this one.
-- **Xcode** from the Mac App Store, for the iPhone. It's about 10+ GB. Open it once after installing to accept the license and install the extra components.
-- An Apple ID. A free one works.
-- USB cables for both phones.
+Needs Node 22.5+ (built-in SQLite) and Python 3.
 
-## Android phone
+```bash
+cd mhacks26
+npm install
+cp .env.example .env     # then fill it in, see below
+```
 
-1. **Turn on USB debugging:** Settings → About phone → tap **Build number** 7 times. Then Settings → System → Developer options → turn on **USB debugging**.
-2. **Plug it into the Mac** and tap **Allow** on the prompt that appears on the phone.
-3. **Install:**
+`.env` values you must set:
+
+| Variable | Where it comes from |
+|---|---|
+| `BROWSERBASE_API_KEY` | Browserbase dashboard → Settings. `BROWSERBASE_PROJECT_ID` is optional; the project is inferred from the key. |
+| `SERVER_PUBLIC_URL` | The public URL of this server. Muse calls it back from Meta's cloud, so run `ngrok http 3000` and paste the `https://….ngrok.app` URL. |
+| `SPECTRUM_PROJECT_ID`, `SPECTRUM_PROJECT_SECRET` | Photon dashboard (https://app.photon.codes) → project Settings. |
+| `MATCH_THRESHOLD` | Cosine similarity needed for a match. Default 0.8; two clearly similar test profiles scored 0.60, so expect to tune this down (0.6–0.7). |
+| `LOOP` | `false`: a phone stops reporting after its first texted match. |
+
+Start the three processes (three terminals):
+
+```bash
+# 1. similarity service (first run: python3 -m venv semantic/.venv && semantic/.venv/bin/pip install sentence-transformers)
+semantic/run.sh
+
+# 2. public tunnel
+ngrok http 3000          # put the https URL in .env as SERVER_PUBLIC_URL
+
+# 3. the server
+npm run dev
+```
+
+Test Photon before anything else:
+
+```bash
+node --env-file=.env scripts/photon-test.mjs +1YOURNUMBER
+```
+
+### Testing without Muse
+
+Set `MOCK_MUSE=true` and `NOTIFIER=log` in `.env`. Create a taste profile by hand, then log in with a `mock_username`:
+
+```bash
+spacetime call -s maincloud --anonymous harmony-1o7k0 save_taste_profile "Test A" "test_a" "Three sentences about their reels."
+curl -X POST localhost:3000/api/app/login/start -H 'Content-Type: application/json' \
+  -d '{"identifier":"a@example.com","phone_number":"+15550000001","consent":true,"mock_username":"test_a"}'
+```
+
+The phones can't send `mock_username`; use curl for mock accounts, or point the phones at a server with real Muse.
+
+## 2. Android phone
+
+1. Settings → About phone → tap **Build number** 7 times, then Developer options → **USB debugging**. Plug in, tap **Allow**.
+2. Install:
    ```bash
-   cd ~/Documents/vikramanantha.github.io/mhacks26/ble/android
+   cd mhacks26/ble/android
    export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
-   ~/Library/Android/sdk/platform-tools/adb devices   # your phone should be listed
    ./gradlew installDebug
    ```
-   Or open `mhacks26/ble/android` in Android Studio, pick your phone and press ▶ Run.
-4. **Open BleChat** and allow **Nearby devices** and **Notifications**. Make sure Bluetooth is on.
-5. **Let it run in the background:** Settings → Apps → BleChat → Battery → **Unrestricted**. Samsung, Xiaomi and similar phones kill background apps without this.
+3. Open **Harmony**. Enter the server URL (the ngrok URL), your Muse email/mobile, your phone number (`+1…`). Tap Continue, enter the code Muse sends, then wait while Muse reads your Instagram (a few minutes).
+4. Allow **Nearby devices** and **Notifications**. Settings → Apps → Harmony → Battery → **Unrestricted** so it keeps running in the background.
+5. Logs: `~/Library/Android/sdk/platform-tools/adb logcat -s BleChat`
 
-## iPhone
+## 3. iPhone
 
-1. **Generate the Xcode project:**
-   ```bash
-   brew install xcodegen
-   cd ~/Documents/vikramanantha.github.io/mhacks26/ble/ios
-   xcodegen
-   open BleChat.xcodeproj
-   ```
-2. **Set up signing:** Xcode → Settings → Accounts → **+** → add your Apple ID. Then click **BleChat** in the left sidebar → **Signing & Capabilities**:
-   - **Team:** your Apple ID.
-   - **Bundle Identifier:** something unique, e.g. `com.vikram.blechat`.
-3. **Prepare the iPhone:** plug it in and tap **Trust This Computer**. Then Settings → Privacy & Security → **Developer Mode** → On (the phone restarts).
-4. **Run it:** pick the iPhone in Xcode's device dropdown at the top and press **▶** (⌘R).
-5. **Trust yourself as the developer:** the first launch is blocked as "Untrusted Developer". On the iPhone, go to Settings → General → **VPN & Device Management** → your Apple ID → **Trust**. Press ▶ again and allow Bluetooth.
+Needs Xcode and an Apple ID (free is fine; the app expires after 7 days, press Run again).
 
-With a free Apple ID, the app stops opening after 7 days. Plug the phone back in and press ▶ to reinstall.
+```bash
+brew install xcodegen
+cd mhacks26/ble/ios && xcodegen && open BleChat.xcodeproj
+```
 
-**No XcodeGen?** File → New → Project → iOS App named "BleChat" (SwiftUI). Delete the `ContentView.swift` and `BleChatApp.swift` that Xcode creates, then drag in every `.swift` file from `ble/ios/BleChat`. In the target's **Info** tab, add "Privacy - Bluetooth Always Usage Description". Add the **Background Modes** capability and tick "Uses Bluetooth LE accessories" and "Acts as a Bluetooth LE accessory".
+1. Xcode → Settings → Accounts → add the Apple ID. Target **BleChat** → Signing & Capabilities → pick the Team, set a unique Bundle Identifier (e.g. `com.yourname.harmony`).
+2. Plug the iPhone in, tap **Trust**. On the iPhone: Settings → Privacy & Security → **Developer Mode** → On.
+3. Pick the iPhone as the run destination, press ▶. First launch: Settings → General → **VPN & Device Management** → trust your Apple ID, press ▶ again.
+4. Same onboarding as Android. Bluetooth keeps running in the background once the profile is ready; a force-quit (swipe away) stops it until the app is opened again.
 
-## Test
+## 4. What happens on a match
 
-1. On both phones, type a username (up to 30 characters, Instagram's limit) and tap **2: GATT**. The iPhone has to be unlocked with the app open for this step, because iOS only lets an app start broadcasting in the foreground. BleChat remembers the choice and turns it back on next launch.
-2. Within a few seconds, each phone's log should show `read "<other username>"`.
-3. **Lock the iPhone.** Within about 30 s, the Android log should print the iPhone's name again, marked `(GATT (iPhone overflow area))`. This line means the overflow trick works on this iPhone.
-4. To watch the Android output from the Mac:
-   ```bash
-   ~/Library/Android/sdk/platform-tools/adb logcat -s BleChat
-   ```
-   The iPhone's output shows in Xcode's console while it's plugged in.
+1. Each phone reads the other's username over Bluetooth (about every 30 s) and reports it to the server.
+2. The server scores the pair once (`match_result` in SpacetimeDB, cached locally) and checks `MATCH_THRESHOLD`.
+3. If it's a match **and** both phones reported each other within `PROXIMITY_WINDOW_MS` (10 s) **and** both consented, both get an iMessage with the score, verdict and each other's names. A pair is texted at most once per `ENCOUNTER_COOLDOWN_MS` (1 h).
+4. With `LOOP=false`, a phone that has been texted stops reporting.
 
-## What to expect
+Both phones show the result of every report in their log (`@name: 72%, MATCH. Waiting for their phone to see you too`, …).
 
-| Situation | Result |
-|---|---|
-| Both apps open | Both see each other within a few seconds |
-| iPhone app in the background or locked | Both still see each other: Android via the overflow area, the iPhone more slowly |
-| Android app closed or screen off | Still works: a background service runs behind a "BleChat is finding people nearby" notification |
-| iPhone app swiped away (force-quit) | Nothing works until it's opened again |
-| Two iPhones, both in the background | Usually don't see each other: an iPhone only reads another's overflow area while its own screen is on |
+## Muse site approvals
+
+Muse asks before contacting a new website ("Allow Muse to share information with …?"). The prompt only contacts one site, this server's URL, and the server writes the profile to SpacetimeDB itself. So each Muse account taps **Always allow this site** once, the first time, and the daily refresh doesn't ask again. The ngrok free plan gives your account one fixed `*.ngrok-free.dev` domain; keep using it so the approval stays valid.
 
 ## Troubleshooting
 
-- **`adb devices` shows nothing or "unauthorized":** replug the cable, unlock the phone and tap **Allow**. Some cables only charge, so try another.
-- **Gradle says it can't find Java:** run the `export JAVA_HOME=…` line again in the same terminal.
-- **Xcode signing error about the bundle ID:** change the Bundle Identifier to something nobody else has used.
-- **"status 133" or "timed out" in the log:** normal Bluetooth flakiness. The app retries after 5 s. If it never connects, turn Bluetooth off and on again on both phones.
-- **Android never shows "(iPhone overflow area)":** check that the iPhone was switched to 2: GATT while the app was open, and that the app wasn't force-quit. Other Bluetooth apps on the iPhone can also interfere. The overflow area is undocumented, so a new iOS version may also have changed it.
+- **"Muse did not report back within 20 minutes"**: Muse didn't run the callback curl. Open the Muse app: it is probably waiting on the one-time "Allow Muse to share information with <ngrok URL>?" card, or it says what failed. Check `SERVER_PUBLIC_URL` is reachable from the internet.
+- **"Muse is no longer logged in"** on the daily refresh: log out and in again on the phone.
+- **"Semantic service unreachable"**: start `semantic/run.sh`.
+- **Text failed** in the matches list: the Photon error is shown verbatim; run `scripts/photon-test.mjs` to isolate it.
+- **Nothing nearby**: see `ble/android/.../Method2Gatt.kt` header for the Bluetooth behaviour table (iPhone force-quit, two iPhones both in background).

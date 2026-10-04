@@ -13,15 +13,30 @@ targets:
     info:
       path: BleChat/Info.plist
       properties:
-        CFBundleDisplayName: BleChat
+        CFBundleDisplayName: Harmony
         UILaunchScreen: {}
-        NSBluetoothAlwaysUsageDescription: BleChat uses Bluetooth to find people nearby and swap usernames and messages.
+        NSBluetoothAlwaysUsageDescription: Harmony uses Bluetooth to find people nearby who watch the same reels.
+        # Allows http://<laptop-ip>:3000 during development; ngrok URLs are https anyway.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         # Method 2 keeps scanning and hosting while the app is in the background.
         UIBackgroundModes: [bluetooth-central, bluetooth-peripheral]
+    # Prefills the app's server URL from the repo's .env (SERVER_PUBLIC_URL): before
+    # each build, writes it to server-url.txt inside the app bundle, which code
+    # signing then seals with everything else. Api.defaultServerUrl reads it.
+    preBuildScripts:
+      - name: Server URL from .env
+        script: |
+          URL=$(grep '^SERVER_PUBLIC_URL=' "$SRCROOT/../../.env" 2>/dev/null | cut -d= -f2- | tr -d ' ' | sed 's#/$##')
+          if [ -z "$URL" ]; then echo "warning: SERVER_PUBLIC_URL not set in mhacks26/.env; the app's server URL field will be empty"; exit 0; fi
+          DIR="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"
+          mkdir -p "$DIR" && printf '%s' "$URL" > "$DIR/server-url.txt"
     settings:
       base:
         # Free Apple IDs need a bundle ID nobody else has used: change "mhacks" to your name.
         PRODUCT_BUNDLE_IDENTIFIER: com.mhacks.blechat
         SWIFT_VERSION: "5.0"
         CODE_SIGN_STYLE: Automatic
+        # Your Apple ID's team (Xcode > Settings > Accounts). Kept here so `xcodegen` doesn't drop it.
+        DEVELOPMENT_TEAM: 98SHJPG486
         TARGETED_DEVICE_FAMILY: "1"

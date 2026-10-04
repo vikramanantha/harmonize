@@ -35,6 +35,22 @@ npm run build
 The Muse integration currently requires a single long-running Node server and a Browserbase API key. For a local production preview, run `npm run build` followed by `npm start`. Shared storage for pending browser sessions is required before deploying across serverless instances.
 
 Shared UI is in `components/`, route content is in `app/`, and the design tokens and responsive layouts are in `app/globals.css`. Interactive navigation, the connection notice, and motion wrappers are small client components; page content renders on the server. Reduced-motion preferences are respected.
+## Harmony (phone app + matching server)
+
+The product is the phone app in `ble/` plus the API routes under `app/api/app/`; see
+**[setup.md](setup.md)** for the full setup (server, ngrok, Photon, both phones).
+The website pages in this repo (`/`, `/connect`, `/match`, `/vibe`, `/muse`) are the
+earlier web demo and are slated for removal; the phone app replaces them.
+
+| Piece | Where |
+|---|---|
+| Phone apps (Bluetooth, onboarding, matches) | `ble/android`, `ble/ios` |
+| Muse login + daily summary prompt | `lib/muse-session.ts`, `muse_agent_prompt.txt` |
+| Scoring (sentence-transformers) | `semantic/service.py`, `lib/scorer.ts` |
+| Matching, proximity check, texting | `lib/matching.ts`, `lib/notify.ts` (Photon) |
+| Shared database | SpacetimeDB `harmony-1o7k0`, `lib/spacetime.ts` |
+| Private state (phones, tokens, scores) | SQLite at `DB_PATH`, `lib/db.ts` |
+
 ## Muse browser integration
 
 Visit `/muse` (or **Connect Muse** in the navigation). Enter your Muse mobile

@@ -102,6 +102,9 @@ interface BleListener {
     fun onPeer(peer: Peer)
     fun onMessage(from: String, text: String)
     fun onLog(line: String)
+
+    /** Method 2 read [username] from a nearby phone (every read, about every 30 s per phone). */
+    fun onUsernameRead(username: String) {}
 }
 
 /** [s] cut to at most [max] UTF-8 bytes without splitting a character. */

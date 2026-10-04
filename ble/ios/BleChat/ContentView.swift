@@ -1,43 +1,59 @@
 import SwiftUI
 
-/// One screen: a username, an Off / Method 1 / Method 2 switch, who's nearby, and a log.
 struct ContentView: View {
     @ObservedObject private var store = BleStore.shared
-    @State private var messageTarget: Peer?
-    @State private var draft = ""
+
+    var body: some View {
+        if store.loggedIn {
+            MainView(store: store)
+        } else {
+            OnboardingView(store: store)
+        }
+    }
+}
+
+/// Home screen once logged in: who you are, who's nearby, your matches, and a log.
+struct MainView: View {
+    @ObservedObject var store: BleStore
 
     var body: some View {
         NavigationStack {
             List {
-                Section("You") {
-                    TextField("Instagram username", text: $store.username)
-                        .disabled(store.mode != .off) // the running method already broadcast the old one
-                        .autocorrectionDisabled()
-                    Picker("Method", selection: Binding(get: { store.mode }, set: { store.setMode($0) })) {
-                        ForEach(BleStore.Mode.allCases) { Text($0.rawValue).tag($0) }
+                Section {
+                    if let me = store.me, let username = me.username {
+                        Text("\(me.name ?? "") @\(username)").font(.headline)
+                    } else {
+                        Text("Loading your profile…").font(.headline)
                     }
-                    .pickerStyle(.segmented)
+                    Text(statusText).font(.caption).foregroundStyle(statusIsError ? Color.red : Color.secondary)
+                    if store.me?.profile_status == "error" {
+                        Button("Log in again") { store.logout() }
+                    }
                 }
 
-                Section(store.mode == .gatt ? "Nearby (tap to message)" : "Nearby") {
-                    if store.peers.isEmpty {
-                        Text(store.mode == .off ? "Pick a method to start" : "Nobody yet…")
-                            .foregroundStyle(.secondary)
-                    }
+                Section("Nearby") {
+                    if store.peers.isEmpty { Text("Nobody yet…").foregroundStyle(.secondary) }
                     ForEach(store.peers) { peer in
-                        Button {
-                            if store.mode == .gatt { messageTarget = peer }
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading) {
-                                    Text(peer.username).font(.headline)
-                                    Text("via \(peer.via)").font(.caption).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Text("\(peer.rssi) dBm").monospacedDigit().foregroundStyle(.secondary)
-                            }
+                        HStack {
+                            Text("@\(peer.username)")
+                            Spacer()
+                            Text("\(peer.rssi) dBm").monospacedDigit().foregroundStyle(.secondary)
                         }
-                        .foregroundStyle(.primary)
+                    }
+                }
+
+                Section("Matches") {
+                    if matches.isEmpty { Text("No one scored yet").foregroundStyle(.secondary) }
+                    ForEach(matches, id: \.other_username) { m in
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                Text(displayName(m)).fontWeight(m.matched ? .bold : .regular)
+                                Spacer()
+                                Text(percent(m.score)).monospacedDigit()
+                            }
+                            Text(m.verdict).font(.caption).foregroundStyle(.secondary)
+                            Text(matchState(m)).font(.caption).foregroundStyle(m.notify_error == nil ? Color.secondary : Color.red)
+                        }
                     }
                 }
 
@@ -46,19 +62,44 @@ struct ContentView: View {
                         Text(line).font(.caption.monospaced())
                     }
                 }
-            }
-            .navigationTitle("BleChat")
-            .alert(
-                "Message \(messageTarget?.username ?? "")",
-                isPresented: Binding(get: { messageTarget != nil }, set: { if !$0 { messageTarget = nil } })
-            ) {
-                TextField("Message", text: $draft)
-                Button("Send") {
-                    if let peer = messageTarget { store.send(to: peer, text: draft) }
-                    draft = ""
+
+                Section {
+                    Button("Log out", role: .destructive) { store.logout() }
                 }
-                Button("Cancel", role: .cancel) { draft = "" }
             }
+            .navigationTitle("Harmony")
         }
+    }
+
+    private var matches: [Api.Match] { store.me?.matches ?? [] }
+
+    private var statusText: String {
+        if let error = store.serverError { return "Server: \(error)" }
+        guard let me = store.me else { return "" }
+        switch me.profile_status {
+        case "pending": return "Muse is reading your Instagram and saving your taste profile. This can take a few minutes…"
+        case "error": return "Muse failed: \(me.profile_error ?? "unknown error")"
+        default: break
+        }
+        if me.done { return "Your match was texted. Reporting is paused (LOOP is off)." }
+        if let error = me.refresh_error { return "Daily summary refresh failed: \(error)" }
+        return "Sharing your username over Bluetooth · match threshold \(Int(me.match_threshold * 100))%"
+    }
+
+    private var statusIsError: Bool {
+        store.serverError != nil || store.me?.profile_status == "error" || store.me?.refresh_error != nil
+    }
+
+    private func displayName(_ m: Api.Match) -> String {
+        let name = m.other_name.map { "\($0) " } ?? ""
+        return "\(name)@\(m.other_username)"
+    }
+
+    private func percent(_ score: Double) -> String { "\(Int(score * 100))%" }
+
+    private func matchState(_ m: Api.Match) -> String {
+        if m.notified_at != nil { return "texted" }
+        if let error = m.notify_error { return "text failed: \(error)" }
+        return m.matched ? "match" : "not a match"
     }
 }

@@ -262,7 +262,8 @@ final class Method2Gatt: NSObject, CBCentralManagerDelegate, CBPeripheralManager
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         guard current?.peripheral == peripheral else { return }
         guard let service = peripheral.services?.first(where: { $0.uuid == BleIds.m2Service }) else {
-            finish(peripheral, ok: false, "no BleChat service")
+            // Another iPhone whose apps' overflow bits overlap ours; not an error.
+            finish(peripheral, ok: false, nil)
             nextReadAt[peripheral.identifier] = Date().addingTimeInterval(Self.notBleChatRetryAfter)
             return
         }
@@ -297,6 +298,7 @@ final class Method2Gatt: NSObject, CBCentralManagerDelegate, CBPeripheralManager
         let id = peripheral.identifier
         let name = String(decoding: characteristic.value ?? Data(), as: UTF8.self)
         listener?.onLog("Method 2: read \"\(name)\"")
+        listener?.onUsernameRead(name)
         names[id] = name
         nextReadAt[id] = Date().addingTimeInterval(Self.rereadAfter)
         listener?.onPeer(Peer(key: "m2:\(id.uuidString)", username: name, rssi: rssis[id] ?? 0, via: "GATT"))
@@ -317,14 +319,14 @@ final class Method2Gatt: NSObject, CBCentralManagerDelegate, CBPeripheralManager
         guard let op = current, op.peripheral == peripheral else { return }
         timeout?.cancel()
         timeout = nil
-        if !ok {
+        if !ok, let reason {
             let name = names[peripheral.identifier] ?? "a nearby phone"
             switch op.kind {
             case .readName:
-                listener?.onLog("Method 2: reading \(name) failed: \(reason ?? "")")
+                listener?.onLog("Method 2: reading \(name) failed: \(reason)")
                 nextReadAt[peripheral.identifier] = Date().addingTimeInterval(Self.retryAfter)
             case .send:
-                listener?.onLog("Method 2: sending to \(name) failed: \(reason ?? "")")
+                listener?.onLog("Method 2: sending to \(name) failed: \(reason)")
             }
         }
         central?.cancelPeripheralConnection(peripheral)

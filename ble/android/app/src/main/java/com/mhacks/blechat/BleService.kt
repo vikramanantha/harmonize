@@ -8,16 +8,26 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import java.util.concurrent.Executors
 
 /**
  * Keeps Method 2 running with the app closed or the screen off. Android requires the
- * ongoing notification for that. Everything Method 2 reports is printed to logcat
- * (tag "BleChat") and forwarded to the screen when it's open.
+ * ongoing notification for that. Every username read over Bluetooth is reported to
+ * the Harmony server, which scores the pair and texts both people on a match.
+ * Everything is printed to logcat (tag "BleChat") and forwarded to the screen when
+ * it's open.
  */
 class BleService : Service() {
 
     private lateinit var method2: Method2Gatt
+    private val main = Handler(Looper.getMainLooper())
+    private val reporter = Executors.newSingleThreadExecutor()
+
+    // Set when the server says this user's match was already texted and LOOP is off.
+    @Volatile private var reportingStopped = false
 
     private val relay = object : BleListener {
         override fun onPeer(peer: Peer) {
@@ -32,6 +42,41 @@ class BleService : Service() {
         override fun onLog(line: String) {
             Log.i(TAG, line)
             listener?.onLog(line)
+        }
+
+        override fun onUsernameRead(username: String) {
+            report(username)
+        }
+    }
+
+    /** Tells the server we're near [username]; the result (or error) goes to the log. */
+    private fun report(username: String) {
+        if (reportingStopped) return
+        reporter.execute {
+            val line = try {
+                describe(Api.encounter(this, username))
+            } catch (e: Exception) {
+                "Reporting @$username to the server failed: ${e.message}"
+            }
+            main.post { relay.onLog(line) }
+        }
+    }
+
+    private fun describe(r: Api.Encounter): String {
+        val who = "@${r.otherUsername}"
+        val pct = r.score?.let { "${(it * 100).toInt()}%" } ?: "?"
+        return when (r.status) {
+            "done" -> {
+                reportingStopped = true
+                "Your match was already texted; reporting stopped (LOOP is off)"
+            }
+            "no_profile" -> "$who: no taste profile in the database yet"
+            "not_a_match" -> "$who: $pct, not a match"
+            "match_waiting" -> "$who: $pct, MATCH. Waiting for their phone to see you too"
+            "match_no_consent" -> "$who: $pct, MATCH, but one of you turned off texts"
+            "already_notified" -> "$who: $pct, MATCH (already texted)"
+            "notified" -> "$who: $pct, MATCH. Texted you both"
+            else -> "$who: ${r.status}"
         }
     }
 
@@ -55,6 +100,7 @@ class BleService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        reporter.shutdownNow()
         method2.stop()
         username = null
         instance = null
