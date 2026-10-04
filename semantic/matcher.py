@@ -1,77 +1,53 @@
-import psycopg2
-from pgvector.psycopg2 import register_vector
+import asyncio
+import numpy as np
 from sentence_transformers import SentenceTransformer
+from spacetimedb_sdk.spacetimedb_async_client import SpacetimeDBAsyncClient
 
 # 1. Initialize Hugging Face model (outputs 384-dimensional vectors)
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
-# Replace with your actual NeonDB connection string
-DATABASE_URL = "postgresql://user:password@your-neon-host.neon.tech/neondb?sslmode=require"
+
+def compute_semantic_similarity(text_1: str, text_2: str) -> float:
+  """Runs the Hugging Face algorithm locally to get a similarity score from 0 to 1."""
+  embedding_1 = model.encode(text_1)
+  embedding_2 = model.encode(text_2)
+
+  # Calculate cosine similarity using vectors
+  cosine_sim = np.dot(embedding_1, embedding_2) / (
+      np.linalg.norm(embedding_1) * np.linalg.norm(embedding_2)
+  )
+  return float(cosine_sim)
 
 
-def generate_and_store_profile(user_id: str, summary_paragraph: str):
-  """Generates a 384-dim vector from text and saves/updates it in NeonDB."""
-  embedding = model.encode(summary_paragraph).tolist()
+def on_connect(auth_token, identity):
+  print(f"Connected to SpacetimeDB! Client Identity: {identity}")
 
-  conn = psycopg2.connect(DATABASE_URL)
-  register_vector(conn)  # Tells psycopg2 how to handle vector types
-  cur = conn.cursor()
+  # Workflow example:
+  # 1. Pull summary texts from the subscribed local cache tables
+  # user_a = UserProfile.filter_by_user_id("user_alex")
+  # user_b = UserProfile.filter_by_user_id("user_sam")
+  #
+  # if user_a and user_b:
+  #     # 2. Run the algorithm
+  #     score = compute_semantic_similarity(user_a.summary_text, user_b.summary_text)
+  #     print(f"Computed Vibe Match Score: {score:.4f}")
+  #
+  #     # 3. Put result back into database via a Reducer call
+  #     # save_match_score_reducer.call(user_a.user_id, user_b.user_id, score)
 
-  cur.execute(
-      """
-        INSERT INTO user_profiles (user_id, summary_text, embedding)
-        VALUES (%s, %s, %s)
-        ON CONFLICT (user_id) 
-        DO UPDATE SET summary_text = EXCLUDED.summary_text, embedding = EXCLUDED.embedding;
-    """,
-        (user_id, summary_paragraph, embedding),
+
+def main():
+  # Connect to your local SpacetimeDB instance and subscribe to tables
+  asyncio.run(
+      SpacetimeDBAsyncClient.run(
+          auth_token="",
+          host_name="http://localhost:3000",
+          module_name="my_instagram_module",  # Replace with your published module name
+          on_connect=on_connect,
+          queries=["SELECT * FROM user_profiles", "SELECT * FROM profile_matches"],
+      )
   )
 
-  conn.commit()
-  cur.close()
-  conn.close()
 
-
-def compare_user_profiles(user_id_1: str, user_id_2: str) -> float:
-  """Compares two user profiles using pgvector cosine distance calculation."""
-  conn = psycopg2.connect(DATABASE_URL)
-  register_vector(conn)
-  cur = conn.cursor()
-
-  query = """
-        SELECT 
-            1 - (p1.embedding <=> p2.embedding) AS semantic_similarity
-        FROM user_profiles p1, user_profiles p2
-        WHERE p1.user_id = %s AND p2.user_id = %s;
-    """
-
-  cur.execute(query, (user_id_1, user_id_2))
-  result = cur.fetchone()
-
-  cur.close()
-  conn.close()
-
-  if result:
-    return float(result[0])
-  else:
-    raise ValueError("One or both user IDs not found in the database.")
-
-
-# --- Example Test Run ---
 if __name__ == "__main__":
-  # Notice how these summaries focus on categories/vibes rather than specific names
-  user_a_summary = (
-      "Enjoys high-intensity workout reels, saves marathon training guides,"
-      " and actively leaves supportive comments on friends' fitness posts."
-  )
-  user_b_summary = (
-      "Passionate about endurance running, nutrition guides, and leaving"
-      " encouraging comments on peers' athletic achievements."
-  )
-
-  generate_and_store_profile("user_alex", user_a_summary)
-  generate_and_store_profile("user_sam", user_b_summary)
-
-  # Compare them
-  score = compare_user_profiles("user_alex", "user_sam")
-  print(f"Vibe Match Similarity Score: {score:.4f}")
+  main()
