@@ -12,6 +12,7 @@ export function Nav() {
       <nav className="nav wrap" aria-label="Main navigation">
         <Brand />
         <div className="desktop-nav">
+          <Link href="/muse" aria-current={pathname === "/muse" ? "page" : undefined}>Connect Muse</Link>
           <Link href="/#how-it-works">How it works</Link>
           <Link href="/#experience">The experience</Link>
           <Link
@@ -44,6 +45,7 @@ export function Nav() {
           <Link href="/#how-it-works">How it works</Link>
           <Link href="/#experience">The experience</Link>
           <Link href="/vibe">Explore the demo</Link>
+          <Link href="/muse">Connect Muse</Link>
         </nav>
       )}
     </header>
