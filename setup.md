@@ -58,7 +58,7 @@ Set `MOCK_MUSE=true` and `NOTIFIER=log` in `.env`. Create a taste profile by han
 ```bash
 spacetime call -s maincloud --anonymous harmony-1o7k0 save_taste_profile "Test A" "test_a" "Three sentences about their reels."
 curl -X POST localhost:3000/api/app/login/start -H 'Content-Type: application/json' \
-  -d '{"identifier":"a@example.com","phone_number":"+15550000001","consent":true,"mock_username":"test_a"}'
+  -d '{"identifier":"a@example.com","phone_number":"+15550000001","consent":true,"auto_approve":true,"mock_username":"test_a"}'
 ```
 
 The phones can't send `mock_username`; use curl for mock accounts, or point the phones at a server with real Muse.

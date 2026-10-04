@@ -26,9 +26,6 @@ class BleService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private val reporter = Executors.newSingleThreadExecutor()
 
-    // Set when the server says this user's match was already texted and LOOP is off.
-    @Volatile private var reportingStopped = false
-
     private val relay = object : BleListener {
         override fun onPeer(peer: Peer) {
             listener?.onPeer(peer)
@@ -51,7 +48,8 @@ class BleService : Service() {
 
     /** Tells the server we're near [username]; the result (or error) goes to the log. */
     private fun report(username: String) {
-        if (reportingStopped) return
+        // Always reported; with LOOP off the server answers "done" after the first
+        // match, and resumes after a demo reset.
         reporter.execute {
             val line = try {
                 describe(Api.encounter(this, username))
@@ -66,10 +64,7 @@ class BleService : Service() {
         val who = "@${r.otherUsername}"
         val pct = r.score?.let { "${(it * 100).toInt()}%" } ?: "?"
         return when (r.status) {
-            "done" -> {
-                reportingStopped = true
-                "Your match was already texted; reporting stopped (LOOP is off)"
-            }
+            "done" -> "Already matched; no more texts until the demo is reset (LOOP is off)"
             "no_profile" -> "$who: no taste profile in the database yet"
             "not_a_match" -> "$who: $pct, not a match"
             "match_waiting" -> "$who: $pct, MATCH. Waiting for their phone to see you too"

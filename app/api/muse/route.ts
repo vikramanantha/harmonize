@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { cookies } from "next/headers";
-import { browserbase, MuseError, nextStep, release, submitPrompt, withPage } from "@/lib/muse-browser";
+import { browserbase, MuseError, nextStep, release, submitPrompt, withPage, type LoginStep } from "@/lib/muse-browser";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
-type Login = { id: string; connectUrl: string; prompt: string; step: "code" | "password" | "ready"; expires: number; busy: boolean };
+type Login = { id: string; connectUrl: string; prompt: string; step: LoginStep; expires: number; busy: boolean };
 const globalState = globalThis as typeof globalThis & { museLogins?: Map<string, Login> };
 const logins = globalState.museLogins ??= new Map<string, Login>();
 const COOKIE = "muse_login";

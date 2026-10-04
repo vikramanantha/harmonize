@@ -21,7 +21,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -58,6 +60,9 @@ class HomeState {
     var bluetoothProblem by mutableStateOf<String?>(null)
     /** Set when the first text to Photon must be sent by hand (SMS permission declined). */
     var textsLine by mutableStateOf<String?>(null)
+    /** The switch's position while a change is being saved (null = use the server's). */
+    var textsPending by mutableStateOf<Boolean?>(null)
+    var textsError by mutableStateOf<String?>(null)
 }
 
 @Composable
@@ -68,6 +73,8 @@ fun HomeScreen(
     onDevModeChange: (Boolean) -> Unit,
     onSignOut: () -> Unit,
     onTurnOnTexts: (String) -> Unit,
+    onTextsChange: (Boolean) -> Unit,
+    onResetDemo: () -> Unit,
 ) {
     val me = state.me
     val colors = MaterialTheme.colorScheme
@@ -109,21 +116,7 @@ fun HomeScreen(
             state.bluetoothProblem?.let { problem ->
                 item { MessageCard(problem, isError = true, modifier = Modifier.padding(top = 16.dp)) }
             }
-            state.textsLine?.let { line ->
-                item {
-                    Card(Modifier.padding(top = 16.dp)) {
-                        Text("Turn on match texts", style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "Harmonize texts you when someone you match with is nearby. Send one quick text to finish setting it up.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = colors.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(14.dp))
-                        GradientButton("Open Messages", busy = false) { onTurnOnTexts(line) }
-                    }
-                }
-            }
+            item { MatchTextsCard(state, me, devMode, onTextsChange, onTurnOnTexts) }
             if (me.done) {
                 item {
                     MessageCard(
@@ -173,6 +166,22 @@ fun HomeScreen(
                         DevLine("LOOP", it.loop.toString())
                         DevLine("Photon line", it.photonLine ?: "none (texts off or not registered)")
                         DevLine("First text", if (it.firstTextAt != null) "sent" else "not sent")
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    ResetDemoButton(onResetDemo)
+                }
+            }
+            me?.summary?.let { summary ->
+                item { SectionTitle("Your Instagram summary") }
+                item {
+                    Card {
+                        Text(summary, style = MaterialTheme.typography.bodyMedium)
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Written by Muse. This is what your matches are scored on.",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = colors.onSurfaceVariant,
+                        )
                     }
                 }
             }
@@ -280,6 +289,54 @@ private fun ProfileCard(state: HomeState) {
 }
 
 @Composable
+private fun MatchTextsCard(
+    state: HomeState,
+    me: Api.Me,
+    devMode: Boolean,
+    onChange: (Boolean) -> Unit,
+    onOpenMessages: (String) -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val on = state.textsPending ?: me.textsOn
+    Card(Modifier.padding(top = 16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Match texts", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(2.dp))
+                val status = when {
+                    state.textsPending != null -> if (state.textsPending == true) "Turning on…" else "Turning off…"
+                    !me.textsOn -> "Get a text when someone you match with is nearby."
+                    me.textsConfirmedAt != null -> "On. We'll text ${me.phoneNumber}."
+                    else -> "Setting up… you'll get a confirmation text shortly."
+                }
+                Text(status, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+            }
+            Spacer(Modifier.width(12.dp))
+            Switch(checked = on, onCheckedChange = onChange, enabled = state.textsPending == null)
+        }
+        state.textsLine?.takeIf { on }?.let { line ->
+            Spacer(Modifier.height(14.dp))
+            Text(
+                "Send one quick text to finish turning them on.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(10.dp))
+            GradientButton("Open Messages", busy = false) { onOpenMessages(line) }
+        }
+        val error = state.textsError ?: me.photonError?.takeIf { me.textsOn }
+        error?.let {
+            Spacer(Modifier.height(12.dp))
+            MessageCard(
+                if (devMode) it else "We couldn't turn on match texts. Try switching them off and on again.",
+                isError = true,
+                mono = devMode,
+            )
+        }
+    }
+}
+
+@Composable
 private fun SettingUpCard() {
     Card(Modifier.padding(top = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -347,6 +404,23 @@ private fun MatchCard(match: Api.Match, modifier: Modifier = Modifier) {
                 else -> Pill("Different tastes", colors.surfaceVariant, colors.onSurfaceVariant)
             }
         }
+    }
+}
+
+@Composable
+private fun ResetDemoButton(onReset: () -> Unit) {
+    var confirming by remember { mutableStateOf(false) }
+    OutlinedButton(onClick = { confirming = true }, modifier = Modifier.fillMaxWidth()) {
+        Text("Reset demo for everyone")
+    }
+    if (confirming) {
+        AlertDialog(
+            onDismissRequest = { confirming = false },
+            title = { Text("Reset the demo?") },
+            text = { Text("This forgets who has been texted, for every Harmonize user, so the same people can match and be texted again. Match scores are kept.") },
+            confirmButton = { TextButton(onClick = { confirming = false; onReset() }) { Text("Reset") } },
+            dismissButton = { TextButton(onClick = { confirming = false }) { Text("Cancel") } },
+        )
     }
 }
 

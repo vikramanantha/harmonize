@@ -57,8 +57,9 @@ fun SignInScreen(devMode: Boolean, onDevModeChange: (Boolean) -> Unit, onSignedI
     var server by rememberSaveable { mutableStateOf(Api.serverUrl(context).ifEmpty { BuildConfig.SERVER_URL }) }
     var identifier by rememberSaveable { mutableStateOf("") }
     var phone by rememberSaveable { mutableStateOf("") }
-    var textMe by rememberSaveable { mutableStateOf(true) }
+    var textMe by rememberSaveable { mutableStateOf(false) }
     var autoApprove by rememberSaveable { mutableStateOf(false) }
+    var useDms by rememberSaveable { mutableStateOf(false) }
     var credential by rememberSaveable { mutableStateOf("") }
     var loginId by rememberSaveable { mutableStateOf<String?>(null) }
     var busy by rememberSaveable { mutableStateOf(false) }
@@ -79,7 +80,7 @@ fun SignInScreen(devMode: Boolean, onDevModeChange: (Boolean) -> Unit, onSignedI
         Api.setServerUrl(context, server)
         busy = true
         status = "Opening Muse…"
-        Api.async({ Api.loginStart(context, identifier.trim(), phone.trim(), textMe, autoApprove) }, { fail(it) }) { result ->
+        Api.async({ Api.loginStart(context, identifier.trim(), phone.trim(), textMe, autoApprove, useDms) }, { fail(it) }) { result ->
             busy = false
             status = null
             if (result.deviceToken != null) return@async onSignedIn(result.deviceToken)
@@ -92,9 +93,9 @@ fun SignInScreen(devMode: Boolean, onDevModeChange: (Boolean) -> Unit, onSignedI
     fun verify() {
         error = null
         val id = loginId ?: run { step = "start"; return }
-        if (credential.isBlank()) return fail("Enter the code Muse sent you.", friendlyAlready = true)
+        if (credential.isBlank()) return fail(if (step == "phone") "Enter your phone number." else "Enter the code Muse sent you.", friendlyAlready = true)
         busy = true
-        status = "Checking your code…"
+        status = if (step == "phone") "Sending your number to Muse…" else "Checking your code…"
         Api.async({ Api.loginVerify(context, id, credential.trim()) }, { fail(it) }) { result ->
             busy = false
             status = null
@@ -164,13 +165,40 @@ fun SignInScreen(devMode: Boolean, onDevModeChange: (Boolean) -> Unit, onSignedI
                         modifier = Modifier.padding(top = 12.dp),
                     )
                 }
+                Row(verticalAlignment = Alignment.Top) {
+                    Checkbox(checked = useDms, onCheckedChange = { useDms = it }, enabled = !busy)
+                    Text(
+                        "Optional: include reels shared in my Instagram messages. Muse turns on Instagram messages access (always allowed) and looks only at the reels, never your conversations.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
                 Spacer(Modifier.height(20.dp))
-                GradientButton("Continue", busy) { start() }
+                // Both are required: texts deliver matches, and the approval lets the
+                // server finish Muse's setup. The server enforces this too.
+                val ready = textMe && autoApprove
+                if (!ready) {
+                    Text(
+                        "Turn on both options above to continue.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                    )
+                }
+                GradientButton("Continue", busy, enabled = ready) { start() }
             } else {
-                Text(if (step == "password") "Enter your Muse password" else "Check your messages", style = MaterialTheme.typography.titleLarge)
+                val (title, subtitle) = when (step) {
+                    "password" -> "Enter your Muse password" to "Muse is asking for your password."
+                    "sms_code" -> "Enter the code we texted you" to "Your Muse account uses two-step sign-in. Enter the code texted to your phone."
+                    "phone" -> "Confirm your phone number" to "For two-step sign-in, Muse needs the phone number on your Muse account."
+                    else -> "Check your messages" to "Muse sent a code to $identifier."
+                }
+                Text(title, style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    if (step == "password") "Muse is asking for your password." else "Muse sent a code to $identifier.",
+                    subtitle,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -180,16 +208,24 @@ fun SignInScreen(devMode: Boolean, onDevModeChange: (Boolean) -> Unit, onSignedI
                     onValueChange = { credential = it },
                     enabled = !busy,
                     singleLine = true,
-                    placeholder = { Text(if (step == "password") "Password" else "••••••", textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) },
-                    textStyle = if (step == "password") MaterialTheme.typography.bodyLarge
+                    placeholder = {
+                        Text(
+                            when (step) { "password" -> "Password"; "phone" -> "555 123 4567"; else -> "••••••" },
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    },
+                    textStyle = if (step == "password" || step == "phone") MaterialTheme.typography.bodyLarge.copy(textAlign = TextAlign.Center)
                     else TextStyle(fontSize = 26.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 8.sp, textAlign = TextAlign.Center),
                     visualTransformation = if (step == "password") PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
-                    keyboardOptions = KeyboardOptions(keyboardType = if (step == "password") KeyboardType.Password else KeyboardType.Number),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = when (step) { "password" -> KeyboardType.Password; "phone" -> KeyboardType.Phone; else -> KeyboardType.Number },
+                    ),
                     shape = MaterialTheme.shapes.small,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(20.dp))
-                GradientButton("Verify", busy) { verify() }
+                GradientButton(if (step == "phone") "Send me the code" else "Verify", busy) { verify() }
                 TextButton(
                     onClick = { step = "start"; loginId = null; credential = ""; error = null },
                     enabled = !busy,

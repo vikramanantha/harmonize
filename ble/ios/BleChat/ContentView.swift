@@ -20,7 +20,10 @@ struct MainView: View {
     @ObservedObject var store: BleStore
     @AppStorage("dev_mode") private var devMode = false
     @State private var composing = false
-    @State private var firstTextDone = false
+    @State private var textsPending: Bool?
+    @State private var textsError: String?
+    @State private var composeLine: String?
+    @State private var confirmingReset = false
 
     private static let firstText = "Hi Harmonize! Turning on my match texts."
 
@@ -43,7 +46,7 @@ struct MainView: View {
             .background(Color(.systemGroupedBackground))
             .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $composing) {
-                if let line = store.me?.photon_line {
+                if let line = composeLine {
                     MessageComposer(recipient: line, body: Self.firstText) { sent in
                         if sent { markFirstText(line) }
                     }
@@ -138,17 +141,7 @@ struct MainView: View {
                     .padding(.top, 16)
                 GradientButton(title: "Sign in again", busy: false) { store.logout() }.padding(.top, 12)
             default:
-                if let line = me.photon_line, !firstTextDone, !Api.firstTextSent(line) {
-                    // On Photon's shared lines a person must text their line once before
-                    // Photon may text them; iOS only allows this with the person tapping Send.
-                    CardBox {
-                        Text("Turn on match texts").font(.headline)
-                        Text("Harmonize texts you when someone you match with is nearby. Send one quick text to finish setting it up.")
-                            .font(.subheadline).foregroundStyle(.secondary).padding(.top, 4)
-                        GradientButton(title: "Send the text", busy: false) { openFirstText(line) }.padding(.top, 14)
-                    }
-                    .padding(.top, 16)
-                }
+                matchTextsCard(me)
                 if me.done {
                     MessageCard(text: "You've been matched! We texted you both, so go say hi.", isError: false).padding(.top, 16)
                 }
@@ -206,6 +199,23 @@ struct MainView: View {
                     devLine("Photon line", me.photon_line ?? "none")
                     devLine("First text", me.first_text_at != nil ? "sent" : "not sent")
                 }
+                Button("Reset demo for everyone", role: .destructive) { confirmingReset = true }
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 14)
+                    .confirmationDialog("Reset the demo?", isPresented: $confirmingReset, titleVisibility: .visible) {
+                        Button("Reset", role: .destructive) { resetDemo() }
+                    } message: {
+                        Text("This forgets who has been texted, for every Harmonize user, so the same people can match and be texted again. Match scores are kept.")
+                    }
+            }
+            if let summary = store.me?.summary {
+                sectionTitle("Your Instagram summary", trailing: nil)
+                CardBox {
+                    Text(summary).font(.subheadline)
+                    Text("Written by Muse. This is what your matches are scored on.")
+                        .font(.caption).foregroundStyle(.secondary).padding(.top, 8)
+                }
             }
             sectionTitle("Log", trailing: nil)
             CardBox {
@@ -217,10 +227,79 @@ struct MainView: View {
         }
     }
 
-    // MARK: First text to Photon
+    private func resetDemo() {
+        Task {
+            do {
+                let cleared = try await Api.resetDemo()
+                store.onLog("Demo reset: cleared \(cleared) texts. Everyone can match again.")
+            } catch {
+                store.onLog("Demo reset failed: \(error.localizedDescription)")
+            }
+            await store.refresh()
+        }
+    }
+
+    // MARK: Match texts
+    // On Photon's shared lines a person must text their line once before Photon
+    // may text them. iOS only allows that with the person tapping Send, so turning
+    // the switch on opens a pre-filled message; sending it triggers the server's
+    // "match texts are on" confirmation text.
+
+    private func matchTextsCard(_ me: Api.Me) -> some View {
+        let on = textsPending ?? me.consent
+        let status: String
+        if let pending = textsPending {
+            status = pending ? "Turning on…" : "Turning off…"
+        } else if !me.consent {
+            status = "Get a text when someone you match with is nearby."
+        } else if me.texts_confirmed_at != nil {
+            status = "On. We'll text \(me.phone_number)."
+        } else {
+            status = "Setting up… you'll get a confirmation text shortly."
+        }
+        let error = textsError ?? (me.consent ? me.photon_error : nil)
+        return CardBox {
+            Toggle(isOn: Binding(get: { on }, set: { setTexts($0) })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Match texts").font(.headline)
+                    Text(status).font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
+            .tint(Brand.violet)
+            .disabled(textsPending != nil)
+            if me.consent, let line = me.photon_line, !Api.firstTextSent(line) {
+                GradientButton(title: "Send the setup text", busy: false) { openFirstText(line) }.padding(.top, 14)
+            }
+            if let error {
+                MessageCard(text: devMode ? error : "We couldn't turn on match texts. Try switching them off and on again.", isError: true, mono: devMode)
+                    .padding(.top, 12)
+            }
+        }
+        .padding(.top, 16)
+    }
+
+    private func setTexts(_ enabled: Bool) {
+        textsPending = enabled
+        textsError = nil
+        Task {
+            do {
+                let line = try await Api.setTexts(enabled)
+                textsPending = nil
+                if enabled, let line {
+                    // Already texted this line before: just report it, which sends the confirmation text.
+                    if Api.firstTextSent(line) { markFirstText(line) } else { openFirstText(line) }
+                }
+            } catch {
+                textsPending = nil
+                textsError = error.localizedDescription
+            }
+            await store.refresh()
+        }
+    }
 
     private func openFirstText(_ line: String) {
         if MessageComposer.canSend {
+            composeLine = line
             composing = true
         } else if let url = URL(string: "sms:\(line)&body=\(Self.firstText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")") {
             UIApplication.shared.open(url)
@@ -230,9 +309,9 @@ struct MainView: View {
 
     private func markFirstText(_ line: String) {
         Api.markFirstTextSent(line)
-        firstTextDone = true
         Task {
             do { try await Api.reportFirstText(line: line) } catch { store.onLog("Reporting the first text failed: \(error.localizedDescription)") }
+            await store.refresh()
         }
     }
 

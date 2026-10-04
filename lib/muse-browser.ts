@@ -67,17 +67,70 @@ export async function withPage<T>(connectUrl: string, action: (page: Page) => Pr
   }
 }
 
-export async function nextStep(page: Page): Promise<"code" | "password" | "ready"> {
-  const code = page.locator('input[autocomplete="one-time-code"], input[name*="code" i], input[placeholder*="code" i], input[inputmode="numeric"]');
-  const password = page.locator('input[type="password"]');
+/**
+ * Login screens Harmonize knows how to fill:
+ *   code      a code sent to the email (or phone) the person signed in with
+ *   sms_code  a two-factor code texted to the account's phone
+ *   phone     two-factor asks for the account's phone number first
+ *   password
+ *   ready     logged in (the chat box is showing)
+ */
+export type LoginStep = "code" | "sms_code" | "phone" | "password" | "ready";
+
+export const CODE_FIELDS = 'input[autocomplete="one-time-code"], input[name*="code" i], input[placeholder*="code" i], input[inputmode="numeric"]';
+export const PHONE_FIELDS = 'input[type="tel"], input[autocomplete="tel"], input[name*="phone" i], input[placeholder*="phone" i]';
+export const PASSWORD_FIELDS = 'input[type="password"]';
+
+// Wording that marks a code screen as a texted two-factor code rather than the
+// email code: SMS/text words, or a masked phone number like "(•••) •••-1234",
+// "***-1234" or "ending in 34" (an email mask like "v***@gmail.com" doesn't match).
+const SMS_HINT = /text message|\bsms\b|texted|two-factor|2-factor|two-step|2-step|\b2fa\b|ending in \d|[•*]{2,}[\s-]*\d{2,4}\b|\(\d{3}\)/i;
+
+export async function pageText(page: Page): Promise<string> {
+  return (await page.locator("body").innerText().catch(() => "")).replace(/\s+/g, " ").trim().slice(0, 1500);
+}
+
+async function isMethodChooser(page: Page): Promise<boolean> {
+  const next = page.getByRole("button", { name: /^\s*next\s*$/i }).first();
+  if (!(await next.isVisible().catch(() => false))) return false;
+  return /select a method|authentication method|confirm your meta account/i.test(await pageText(page));
+}
+
+export async function nextStep(page: Page): Promise<LoginStep> {
+  const code = page.locator(CODE_FIELDS);
+  const phone = page.locator(PHONE_FIELDS);
+  const password = page.locator(PASSWORD_FIELDS);
   const composer = page.locator(process.env.MUSE_PROMPT_SELECTOR || 'textarea, [contenteditable="true"][role="textbox"], [contenteditable="true"][data-lexical-editor="true"]');
+  let choseMethod = false;
   for (let attempt = 0; attempt < 40; attempt++) {
-    if (await code.first().isVisible()) return "code";
+    // Meta's "Confirm your Meta Account" screen: pick how to get the two-step
+    // code ("Send SMS to +*******7110" or "Original Device (Authenticator App)")
+    // and press Next. There's nothing to type, so the server picks SMS itself;
+    // the texted code then comes back to the person as the sms_code step.
+    if (await isMethodChooser(page)) {
+      if (choseMethod) throw new MuseError("Meta's two-step sign-in screen didn't move on after choosing \"Send SMS\".");
+      const sms = page.getByText(/send sms to/i).first();
+      if (!(await sms.isVisible().catch(() => false))) {
+        throw new MuseError("Meta asked how to confirm your account, but didn't offer a text message (SMS) option.");
+      }
+      await sms.click();
+      await page.getByRole("button", { name: /^\s*next\s*$/i }).first().click();
+      choseMethod = true;
+      await page.waitForTimeout(2500);
+      continue;
+    }
+    if (await code.first().isVisible()) return SMS_HINT.test(await pageText(page)) ? "sms_code" : "code";
+    if (await phone.first().isVisible()) return "phone";
     if (await password.first().isVisible()) return "password";
     if (new URL(page.url()).hostname === "muse.ai" && await composer.first().isVisible()) return "ready";
     await page.waitForTimeout(500);
   }
-  throw new MuseError("Muse did not show a supported login step. It may require a CAPTCHA, SSO, or account setup. Cancel and try again.");
+  // Unknown screen: keep a screenshot so the step can be added, and say what it showed.
+  const shot = `data/debug/muse-${Date.now()}.png`;
+  await page.screenshot({ path: shot, fullPage: true }).catch(() => {});
+  const text = (await pageText(page)).slice(0, 200);
+  console.error(`Unrecognized Muse login screen (screenshot: ${shot}): ${text}`);
+  throw new MuseError(`Muse showed a sign-in step Harmonize doesn't recognize yet: "${text}"`);
 }
 
 export async function submitPrompt(page: Page, prompt: string) {
@@ -114,15 +167,28 @@ export async function submitPrompt(page: Page, prompt: string) {
  * (the site was already allowed) or [timeoutMs] passed.
  */
 export async function approveSite(page: Page, host: string, done: () => boolean, timeoutMs: number): Promise<boolean> {
+  return approveCard(page, new RegExp(`allow muse to share information with\\s+${host.replace(/[.]/g, "\\.")}`, "i"), host, done, timeoutMs);
+}
+
+/**
+ * Same as approveSite, for Muse's permission card about Instagram messages (for
+ * people who ticked "Include reels from my Instagram messages"). Only a card
+ * that names Instagram and asks to allow Muse is touched.
+ */
+export async function approveInstagram(page: Page, done: () => boolean, timeoutMs: number): Promise<boolean> {
+  return approveCard(page, /allow muse\b.*instagram|instagram.*\ballow muse/i, "Instagram", done, timeoutMs);
+}
+
+async function approveCard(page: Page, cardText: RegExp, what: string, done: () => boolean, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline && !done()) {
-    const card = page.getByText(new RegExp(`allow muse to share information with\\s+${host.replace(/[.]/g, "\\.")}`, "i")).first();
+    const card = page.getByText(cardText).first();
     if (await card.isVisible().catch(() => false)) {
       // Exact name: a looser match also hits the card itself (its name contains
       // every button label), and clicking that lands on "Allow once".
-      const always = page.getByRole("button", { name: /^\s*always allow this site\s*$/i });
+      const always = page.getByRole("button", { name: /^\s*always allow(\s+this\s+(site|app|connection|integration))?\s*$/i });
       if (await always.count() !== 1) {
-        throw new MuseError(`Muse showed an approval card for ${host}, but not exactly one "Always allow this site" button (found ${await always.count()}).`);
+        throw new MuseError(`Muse showed an approval card for ${what}, but not exactly one "Always allow" button (found ${await always.count()}).`);
       }
       await always.click();
       return true;

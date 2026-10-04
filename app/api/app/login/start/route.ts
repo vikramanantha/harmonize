@@ -16,7 +16,13 @@ export const POST = handler(async request => {
   if (!phone) throw new HttpError(400, "Enter your 10-digit US phone number.");
   if (typeof body.consent !== "boolean") throw new HttpError(400, "Say whether we may text you about matches.");
   if (body.auto_approve !== undefined && typeof body.auto_approve !== "boolean") throw new HttpError(400, "auto_approve must be true or false.");
-  const input = { identifier, phone_number: phone, consent: body.consent, auto_approve: body.auto_approve === true };
+  // Harmonize needs both: texts are how matches are delivered, and the approval
+  // lets the server finish Muse's setup without the person tapping in Muse.
+  if (body.consent !== true || body.auto_approve !== true) {
+    throw new HttpError(400, "Turn on \"Text me about matches\" and tick the approval box to continue.");
+  }
+  if (body.use_dms !== undefined && typeof body.use_dms !== "boolean") throw new HttpError(400, "use_dms must be true or false.");
+  const input = { identifier, phone_number: phone, consent: body.consent, auto_approve: body.auto_approve === true, use_dms: body.use_dms === true };
 
   if (config.mockMuse && body.mock_username !== undefined) {
     if (!isValidUsername(body.mock_username)) throw new HttpError(400, "mock_username must be a valid Instagram username.");

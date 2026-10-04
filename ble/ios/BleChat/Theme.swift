@@ -42,6 +42,7 @@ struct Logo: View {
 struct GradientButton: View {
     var title: String
     var busy: Bool
+    var enabled = true
     var action: () -> Void
 
     var body: some View {
@@ -55,9 +56,10 @@ struct GradientButton: View {
             }
             .frame(maxWidth: .infinity, minHeight: 54)
             .background(Brand.gradient, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .opacity(enabled || busy ? 1 : 0.45)
         }
         .buttonStyle(.plain)
-        .disabled(busy)
+        .disabled(busy || !enabled)
     }
 }
 

@@ -8,16 +8,15 @@
 import { randomUUID } from "node:crypto";
 import { config } from "./config";
 import { db, newToken, upsertAccount, type Account, type Login } from "./db";
-import { approveSite, browserbase, createContext, createSession, MuseError, nextStep, release, submitPrompt, withPage } from "./muse-browser";
-import { registerRecipient } from "./notify";
-import { buildMusePrompt, buildSetupCheckPrompt } from "./prompts";
+import { approveInstagram, approveSite, browserbase, CODE_FIELDS, createContext, PASSWORD_FIELDS, PHONE_FIELDS, createSession, MuseError, nextStep, release, submitPrompt, withPage } from "./muse-browser";
+import { registerRecipient, sendTextsConfirmation } from "./notify";
+import { buildMusePrompt } from "./prompts";
 import { saveTasteProfile, tasteProfileByUsername } from "./spacetime";
 
 const LOGIN_TTL_MS = 540_000; // under Browserbase's 600 s session timeout
 const MAX_PENDING_LOGINS = 5;
 const CODE_ACCEPT_TIMEOUT_MS = 20_000;
 const SETUP_CHECK_TIMEOUT_MS = 3 * 60_000;
-const SETUP_SETTLE_MS = 15_000;
 
 async function alreadyLoggedIn(page: import("playwright-core").Page): Promise<boolean> {
   if (new URL(page.url()).hostname !== "muse.ai") return false;
@@ -25,7 +24,7 @@ async function alreadyLoggedIn(page: import("playwright-core").Page): Promise<bo
   return composer.first().isVisible().catch(() => false);
 }
 
-export type LoginInput = { identifier: string; phone_number: string; consent: boolean; auto_approve: boolean };
+export type LoginInput = { identifier: string; phone_number: string; consent: boolean; auto_approve: boolean; use_dms: boolean };
 
 function loginById(id: string): Login | null {
   return (db().prepare("SELECT * FROM logins WHERE id = ?").get(id) as Login | undefined) ?? null;
@@ -63,6 +62,7 @@ export async function startLogin(input: LoginInput): Promise<{ login_id: string;
     phone_number: input.phone_number,
     consent: input.consent ? 1 : 0,
     auto_approve: input.auto_approve ? 1 : 0,
+    use_dms: input.use_dms ? 1 : 0,
     session_id: session.id,
     connect_url: session.connectUrl,
     context_id: contextId,
@@ -70,9 +70,9 @@ export async function startLogin(input: LoginInput): Promise<{ login_id: string;
     busy: 1,
     expires: Date.now() + LOGIN_TTL_MS,
   };
-  db().prepare(`INSERT INTO logins (id, identifier, phone_number, consent, auto_approve, session_id, connect_url, context_id, step, busy, expires)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(login.id, login.identifier, login.phone_number, login.consent, login.auto_approve, login.session_id, login.connect_url, login.context_id, login.step, 1, login.expires);
+  db().prepare(`INSERT INTO logins (id, identifier, phone_number, consent, auto_approve, use_dms, session_id, connect_url, context_id, step, busy, expires)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(login.id, login.identifier, login.phone_number, login.consent, login.auto_approve, login.use_dms, login.session_id, login.connect_url, login.context_id, login.step, 1, login.expires);
 
   try {
     const step = await withPage(session.connectUrl, async page => {
@@ -108,24 +108,27 @@ export async function verifyLogin(loginId: string, credential: string): Promise<
       // A previous Verify may have been accepted after the server stopped looking;
       // if Muse is already past the code screen, don't type the code again.
       if (await alreadyLoggedIn(page)) return "ready" as const;
-      const fields = page.locator(login.step === "password"
-        ? 'input[type="password"]'
-        : 'input[autocomplete="one-time-code"], input[name*="code" i], input[placeholder*="code" i], input[inputmode="numeric"]');
+      const isCode = login.step === "code" || login.step === "sms_code";
+      const fields = page.locator(login.step === "password" ? PASSWORD_FIELDS : login.step === "phone" ? PHONE_FIELDS : CODE_FIELDS);
       const count = await fields.count();
-      if (count > 1 && login.step === "code") {
+      if (count > 1 && isCode) {
         if (credential.length !== count) throw new MuseError(`Enter the ${count}-digit verification code.`);
         for (let i = 0; i < count; i++) await fields.nth(i).fill(credential[i]);
       } else {
         await fields.first().fill(credential);
       }
-      const submit = page.getByRole("button", { name: /^(continue|verify|verify code|log in|sign in|submit)$/i }).first();
+      const submit = page.getByRole("button", { name: /^(continue|verify|verify code|log in|sign in|submit|next|confirm|send code|send|text me)$/i }).first();
       if (await submit.isVisible() && await submit.isEnabled()) await submit.click();
       // Muse keeps the code box on screen for a few seconds while it checks the
       // code; looking too early reports "still on the code step" for a code that
       // was accepted. Wait for the box to go away (or for a wrong-code timeout).
       await fields.first().waitFor({ state: "hidden", timeout: CODE_ACCEPT_TIMEOUT_MS }).catch(() => {});
       const next = await nextStep(page);
-      if (next === login.step) throw new MuseError("Muse didn't accept that code. Check it and try again.");
+      if (next === login.step) {
+        throw new MuseError(login.step === "phone"
+          ? "Muse didn't accept that phone number. Use the one on your Muse account."
+          : "Muse didn't accept that code. Check it and try again.");
+      }
       return next;
     });
     if (step !== "ready") {
@@ -137,6 +140,7 @@ export async function verifyLogin(loginId: string, credential: string): Promise<
       identifier: login.identifier,
       phone_number: login.phone_number,
       consent: login.consent === 1,
+      use_dms: login.use_dms === 1,
       browserbase_context_id: login.context_id,
     });
     // A fresh login starts a fresh profile run: clear any failure left from an
@@ -167,10 +171,13 @@ async function finishSetup(account: Account, login: Login): Promise<void> {
   const tag = `[${login.identifier}]`;
   try {
     await withPage(login.connect_url, async page => {
-      if (login.auto_approve) await runSetupCheck(page, tag);
       const callbackToken = beginPrompt(account.id);
-      await submitPrompt(page, buildMusePrompt(callbackToken));
-      console.log(tag, "Summary prompt sent to Muse");
+      if (login.auto_approve) {
+        await runWithConnectionTest(page, tag, callbackToken, account.id, login.use_dms === 1, login.expires);
+      } else {
+        await submitPrompt(page, buildMusePrompt(callbackToken, { useDms: login.use_dms === 1 }));
+        console.log(tag, "Summary prompt sent to Muse");
+      }
     });
   } catch (error) {
     const full = error instanceof Error ? error.message : String(error);
@@ -186,17 +193,25 @@ async function finishSetup(account: Account, login: Login): Promise<void> {
 }
 
 /**
- * Has Muse POST test data to /api/app/muse/setup-check and approves the card for
- * this server if Muse shows one. Succeeds only when the test POST arrives; if it
- * never does, throws with what was seen.
+ * Sends the prompt with its connection test first, and approves Muse's card for
+ * this server if one appears. Succeeds when the test POST arrives (Muse then
+ * carries on with the Instagram job by itself); if it never does, throws with
+ * what was seen, e.g. Muse declining.
  */
-async function runSetupCheck(page: import("playwright-core").Page, tag: string): Promise<void> {
+async function runWithConnectionTest(
+  page: import("playwright-core").Page,
+  tag: string,
+  callbackToken: string,
+  accountId: number,
+  useDms: boolean,
+  sessionEnds: number,
+): Promise<void> {
   const host = new URL(config.publicUrl).hostname;
   const check = newToken();
   db().prepare("INSERT INTO setup_checks (token) VALUES (?)").run(check);
   const arrived = () => !!(db().prepare("SELECT received_at FROM setup_checks WHERE token = ?").get(check) as { received_at: number | null }).received_at;
-  await submitPrompt(page, buildSetupCheckPrompt(check));
-  console.log(tag, `Setup check sent; waiting for Muse to contact ${host}`);
+  await submitPrompt(page, buildMusePrompt(callbackToken, { checkToken: check, useDms }));
+  console.log(tag, `Prompt sent; waiting for Muse's connection test to reach ${host}`);
   const clicked = await approveSite(page, host, arrived, SETUP_CHECK_TIMEOUT_MS);
   if (clicked) console.log(tag, `Approved ${host} for Muse ("Always allow this site")`);
   const deadline = Date.now() + SETUP_CHECK_TIMEOUT_MS;
@@ -204,11 +219,22 @@ async function runSetupCheck(page: import("playwright-core").Page, tag: string):
   if (!arrived()) {
     throw new MuseError(clicked
       ? `Approved ${host} for Muse, but Muse's test request never reached the server.`
-      : `Muse never sent its test request to ${host} and no approval card for it appeared within ${SETUP_CHECK_TIMEOUT_MS / 60_000} minutes. Open the Muse app to see what it said.`);
+      : `Muse didn't run the connection test (no request to ${host} and no approval card within ${SETUP_CHECK_TIMEOUT_MS / 60_000} minutes). Open the Muse app to see what it said.`);
   }
-  console.log(tag, clicked ? "Setup check passed" : `Setup check passed (${host} was already allowed)`);
-  // Let Muse finish its reply before the real prompt lands in the same chat.
-  await page.waitForTimeout(SETUP_SETTLE_MS);
+  console.log(tag, clicked ? "Connection test passed; Muse is reading Instagram" : `Connection test passed (${host} was already allowed); Muse is reading Instagram`);
+
+  if (useDms) {
+    // Muse may ask to turn on Instagram messages while it works. The person agreed
+    // to that at sign-up, so accept it ("Always allow") while the browser session
+    // lasts, or until Muse reports back.
+    const profileDone = () =>
+      (db().prepare("SELECT callback_token FROM accounts WHERE id = ?").get(accountId) as { callback_token: string | null }).callback_token === null;
+    const watchFor = Math.max(0, sessionEnds - Date.now() - 20_000);
+    const approved = await approveInstagram(page, profileDone, watchFor);
+    console.log(tag, approved
+      ? "Approved Instagram messages for Muse (\"Always allow\")"
+      : profileDone() ? "Muse finished without asking about Instagram messages" : "No Instagram messages card appeared while the session lasted");
+  }
 }
 
 /** Marks a prompt as sent and returns the single-use token Muse must call back with. */
@@ -230,7 +256,7 @@ export async function sendSummaryPrompt(account: Account): Promise<void> {
     });
     if (step !== "ready") throw new MuseError("Muse is no longer logged in (it asked for a code again). Log in again from the app.");
     const callbackToken = beginPrompt(account.id);
-    await withPage(session.connectUrl, page => submitPrompt(page, buildMusePrompt(callbackToken)));
+    await withPage(session.connectUrl, page => submitPrompt(page, buildMusePrompt(callbackToken, { useDms: account.use_dms === 1 })));
   } finally {
     await release(session.id).catch(() => {});
   }
@@ -251,8 +277,8 @@ export async function completeProfile(account: Account, username: string, name: 
       .run(`No taste_profile row for "${username}" in SpacetimeDB.`, account.id);
     throw new MuseError(`No taste_profile row for "${username}" in SpacetimeDB.`);
   }
-  db().prepare("UPDATE accounts SET username = ?, name = ?, profile_status = 'ready', profile_error = NULL, refresh_error = NULL, summarized_at = ?, callback_token = NULL WHERE id = ?")
-    .run(username, name || profile.name, Date.now(), account.id);
+  db().prepare("UPDATE accounts SET username = ?, name = ?, summary = ?, profile_status = 'ready', profile_error = NULL, refresh_error = NULL, summarized_at = ?, callback_token = NULL WHERE id = ?")
+    .run(username, name || profile.name, profile.summary, Date.now(), account.id);
   await registerForTexts({ ...account, name: name || profile.name });
 }
 
@@ -272,6 +298,20 @@ export async function registerForTexts(account: Pick<Account, "id" | "phone_numb
     console.error(`Photon registration failed for account ${account.id}: ${message}`);
     db().prepare("UPDATE accounts SET photon_error = ? WHERE id = ?").run(message, account.id);
   }
+}
+
+/** Sends the confirmation text in the background and records how it went. */
+export function confirmTexts(account: Pick<Account, "id" | "phone_number" | "username">): void {
+  void (async () => {
+    const error = await sendTextsConfirmation(account.phone_number);
+    if (error) {
+      console.error(`Confirmation text to ${account.username ?? account.id} failed: ${error}`);
+      db().prepare("UPDATE accounts SET photon_error = ? WHERE id = ?").run(`Confirmation text failed: ${error}`, account.id);
+    } else {
+      console.log(`Confirmation text sent to ${account.username ?? account.id}`);
+      db().prepare("UPDATE accounts SET texts_confirmed_at = ?, photon_error = NULL WHERE id = ?").run(Date.now(), account.id);
+    }
+  })();
 }
 
 /** Marks profiles failed when Muse hasn't called back in time. Called from GET /api/app/me. */

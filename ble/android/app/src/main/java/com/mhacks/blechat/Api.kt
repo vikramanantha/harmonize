@@ -50,6 +50,13 @@ object Api {
         /** The Photon number this person must text once before Photon may text them; null if texts are off. */
         val photonLine: String?,
         val firstTextAt: Long?,
+        /** Match texts switch. */
+        val textsOn: Boolean,
+        val textsConfirmedAt: Long?,
+        val photonError: String?,
+        val phoneNumber: String,
+        /** The Instagram summary Muse wrote; shown in developer mode. */
+        val summary: String?,
     )
 
     data class Encounter(val status: String, val otherUsername: String, val otherName: String?, val score: Double?, val verdict: String?)
@@ -85,8 +92,8 @@ object Api {
         }
     }
 
-    fun loginStart(context: Context, identifier: String, phone: String, consent: Boolean, autoApprove: Boolean): LoginStep =
-        parseLogin(post(context, "/api/app/login/start", JSONObject().put("identifier", identifier).put("phone_number", phone).put("consent", consent).put("auto_approve", autoApprove), auth = false))
+    fun loginStart(context: Context, identifier: String, phone: String, consent: Boolean, autoApprove: Boolean, useDms: Boolean): LoginStep =
+        parseLogin(post(context, "/api/app/login/start", JSONObject().put("identifier", identifier).put("phone_number", phone).put("consent", consent).put("auto_approve", autoApprove).put("use_dms", useDms), auth = false))
 
     fun loginVerify(context: Context, loginId: String, credential: String): LoginStep =
         parseLogin(post(context, "/api/app/login/verify", JSONObject().put("login_id", loginId).put("credential", credential), auth = false))
@@ -105,6 +112,11 @@ object Api {
             done = j.getBoolean("done"),
             photonLine = j.optStringOrNull("photon_line"),
             firstTextAt = if (j.has("first_text_at") && !j.isNull("first_text_at")) j.getLong("first_text_at") else null,
+            textsOn = j.optBoolean("consent", false),
+            textsConfirmedAt = if (j.has("texts_confirmed_at") && !j.isNull("texts_confirmed_at")) j.getLong("texts_confirmed_at") else null,
+            photonError = j.optStringOrNull("photon_error"),
+            phoneNumber = j.optString("phone_number"),
+            summary = j.optStringOrNull("summary"),
             matches = (0 until matches.length()).map { i ->
                 val m = matches.getJSONObject(i)
                 Match(
@@ -130,6 +142,17 @@ object Api {
             verdict = j.optStringOrNull("verdict"),
         )
     }
+
+    /** Turns match texts on or off; returns the Photon line to text first (when on). */
+    fun setTexts(context: Context, enabled: Boolean): String? {
+        val j = post(context, "/api/app/texts", JSONObject().put("enabled", enabled), auth = true)
+        j.optStringOrNull("photon_error")?.let { throw ApiException(it) }
+        return j.optStringOrNull("photon_line")
+    }
+
+    /** Developer mode: clears who has been texted, for everyone. Returns how many texts were cleared. */
+    fun resetDemo(context: Context): Int =
+        post(context, "/api/app/dev/reset", JSONObject(), auth = true).optInt("notifications")
 
     fun reportFirstText(context: Context, line: String) {
         post(context, "/api/app/photon/first-text", JSONObject().put("line", line), auth = true)

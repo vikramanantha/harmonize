@@ -13,6 +13,9 @@ object Friendly {
                 "Can't connect to Harmonize right now. Check your internet connection and try again."
             "no server url" in text ->
                 "This build of Harmonize isn't connected to a server. Turn on developer mode to set one."
+            "didn't accept that phone number" in text -> raw
+            "doesn't recognize" in text ->
+                "Muse asked for a sign-in step Harmonize can't handle yet. Turn on developer mode to see what it showed."
             "didn't accept that code" in text || "verification code" in text && "digit" !in text ->
                 "That code didn't work. Check it and try again."
             "digit verification code" in text -> raw

@@ -11,7 +11,10 @@ enum Friendly {
             return "Can't connect to Harmonize right now. Check your internet connection and try again."
         }
         if has("no server url") { return "This build of Harmonize isn't connected to a server. Turn on developer mode to set one." }
-        if has("digit verification code") { return raw }
+        if has("digit verification code") || has("didn't accept that phone number") { return raw }
+        if has("doesn't recognize") {
+            return "Muse asked for a sign-in step Harmonize can't handle yet. Turn on developer mode to see what it showed."
+        }
         if has("didn't accept that code") || has("verification code") { return "That code didn't work. Check it and try again." }
         if has("expired") { return "That sign-in took too long. Please start again." }
         if has("slots are busy") || has("already running") { return "Harmonize is busy right now. Try again in a minute." }

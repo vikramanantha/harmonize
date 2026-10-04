@@ -8,8 +8,9 @@ struct OnboardingView: View {
     @State private var serverUrl = Api.serverUrl.isEmpty ? Api.defaultServerUrl : Api.serverUrl
     @State private var identifier = ""
     @State private var phone = ""
-    @State private var textMe = true
+    @State private var textMe = false
     @State private var autoApprove = false
+    @State private var useDms = false
     @State private var credential = ""
     @State private var loginId: String?
     @State private var step = "start" // start | code | password
@@ -76,14 +77,34 @@ struct OnboardingView: View {
                 }
                 .tint(Brand.violet)
                 .padding(.top, 10)
-                GradientButton(title: "Continue", busy: busy) { Task { await start() } }.padding(.top, 20)
+                // Both are required: texts deliver matches, and the approval lets the
+                // server finish Muse's setup. The server enforces this too.
+                Toggle(isOn: $useDms) {
+                    Text("Optional: include reels shared in my Instagram messages. Muse turns on Instagram messages access (always allowed) and looks only at the reels, never your conversations.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+                .tint(Brand.violet)
+                .padding(.top, 10)
+                if !(textMe && autoApprove) {
+                    Text("Turn on both options above to continue.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity).padding(.top, 16)
+                }
+                GradientButton(title: "Continue", busy: busy, enabled: textMe && autoApprove) { Task { await start() } }
+                    .padding(.top, textMe && autoApprove ? 20 : 8)
             } else {
-                Text(step == "password" ? "Enter your Muse password" : "Check your messages").font(.title3.weight(.semibold))
-                Text(step == "password" ? "Muse is asking for your password." : "Muse sent a code to \(identifier).")
+                Text(stepTitle).font(.title3.weight(.semibold))
+                Text(stepSubtitle)
                     .font(.subheadline).foregroundStyle(.secondary).padding(.top, 4)
                 Group {
                     if step == "password" {
                         SecureField("Password", text: $credential)
+                            .padding(14)
+                    } else if step == "phone" {
+                        TextField("555 123 4567", text: $credential)
+                            .keyboardType(.phonePad)
+                            .textContentType(.telephoneNumber)
+                            .multilineTextAlignment(.center)
                             .padding(14)
                     } else {
                         TextField("••••••", text: $credential)
@@ -97,7 +118,7 @@ struct OnboardingView: View {
                 }
                 .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .padding(.top, 20)
-                GradientButton(title: "Verify", busy: busy) { Task { await verify() } }.padding(.top, 20)
+                GradientButton(title: step == "phone" ? "Send me the code" : "Verify", busy: busy) { Task { await verify() } }.padding(.top, 20)
                 Button("Use a different account") { step = "start"; loginId = nil; credential = ""; error = nil }
                     .font(.subheadline.weight(.medium))
                     .tint(Brand.violet)
@@ -112,6 +133,24 @@ struct OnboardingView: View {
             if let error {
                 MessageCard(text: error, isError: true, mono: devMode).padding(.top, 16)
             }
+        }
+    }
+
+    private var stepTitle: String {
+        switch step {
+        case "password": return "Enter your Muse password"
+        case "sms_code": return "Enter the code we texted you"
+        case "phone": return "Confirm your phone number"
+        default: return "Check your messages"
+        }
+    }
+
+    private var stepSubtitle: String {
+        switch step {
+        case "password": return "Muse is asking for your password."
+        case "sms_code": return "Your Muse account uses two-step sign-in. Enter the code texted to your phone."
+        case "phone": return "For two-step sign-in, Muse needs the phone number on your Muse account."
+        default: return "Muse sent a code to \(identifier)."
         }
     }
 
@@ -151,7 +190,8 @@ struct OnboardingView: View {
                 identifier: identifier.trimmingCharacters(in: .whitespaces),
                 phone: phone.trimmingCharacters(in: .whitespaces),
                 consent: textMe,
-                autoApprove: autoApprove
+                autoApprove: autoApprove,
+                useDms: useDms
             )
             print("Harmonize sign-in: step=\(result.step) token=\(result.device_token == nil ? "no" : "yes")")
             if let token = result.device_token { return store.login(token: token) }
@@ -166,9 +206,9 @@ struct OnboardingView: View {
     private func verify() async {
         error = nil
         guard let loginId else { step = "start"; return }
-        guard !credential.isEmpty else { return fail("Enter the code Muse sent you.", friendly: true) }
+        guard !credential.isEmpty else { return fail(step == "phone" ? "Enter your phone number." : "Enter the code Muse sent you.", friendly: true) }
         busy = true
-        status = "Checking your code…"
+        status = step == "phone" ? "Sending your number to Muse…" : "Checking your code…"
         defer { busy = false; status = nil }
         do {
             let result = try await Api.loginVerify(loginId: loginId, credential: credential.trimmingCharacters(in: .whitespaces))

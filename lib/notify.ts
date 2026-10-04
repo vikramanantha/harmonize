@@ -91,3 +91,28 @@ export async function registerRecipient(phoneNumber: string, name: string | null
   return { line };
 }
 
+const CONFIRM_TEXT = "Harmonize: match texts are on! We'll text you when someone nearby watches the same kind of reels as you.";
+const CONFIRM_ATTEMPTS = 6;
+const CONFIRM_RETRY_MS = 10_000;
+
+/**
+ * Sends the "match texts are on" confirmation. Photon only accepts it after the
+ * person's first text to their line has arrived, which can take a few seconds
+ * after the phone sends it, so this waits and tries again a few times. Returns
+ * the last error if it never goes through.
+ */
+export async function sendTextsConfirmation(phoneNumber: string): Promise<string | null> {
+  let last = "";
+  for (let attempt = 1; attempt <= CONFIRM_ATTEMPTS; attempt++) {
+    try {
+      await notifier().send(phoneNumber, CONFIRM_TEXT);
+      return null;
+    } catch (error) {
+      last = error instanceof Error ? error.message : String(error);
+      if (!/target not allowed/i.test(last)) break; // anything else won't fix itself by waiting
+      await new Promise(resolve => setTimeout(resolve, CONFIRM_RETRY_MS));
+    }
+  }
+  return last;
+}
+

@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothManager
 import android.content.Intent
 import android.net.Uri
 import android.telephony.SmsManager
+import android.widget.Toast
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -76,6 +77,8 @@ class MainActivity : ComponentActivity(), BleListener {
                             onDevModeChange = ::setDev,
                             onSignOut = ::signOut,
                             onTurnOnTexts = ::openFirstText,
+                            onTextsChange = ::setTexts,
+                            onResetDemo = ::resetDemo,
                         )
                     } else {
                         SignInScreen(devMode = devMode, onDevModeChange = ::setDev, onSignedIn = ::onSignedIn)
@@ -159,6 +162,40 @@ class MainActivity : ComponentActivity(), BleListener {
     // before Photon may text them. With SMS permission the app sends it; without,
     // the home screen offers a button that opens Messages pre-filled.
 
+    private fun resetDemo() {
+        Api.async({ Api.resetDemo(this) }, { onLog("Demo reset failed: $it") }) { cleared ->
+            onLog("Demo reset: cleared $cleared texts. Everyone can match again.")
+            Toast.makeText(this, "Demo reset. Everyone can match again.", Toast.LENGTH_SHORT).show()
+            home.me = home.me?.copy(done = false)
+        }
+    }
+
+    /** The Match texts switch: saves it, then sends the first text if this phone hasn't yet. */
+    private fun setTexts(enabled: Boolean) {
+        home.textsPending = enabled
+        home.textsError = null
+        Api.async({ Api.setTexts(this, enabled) }, { message ->
+            home.textsPending = null
+            home.textsError = message
+        }) { line ->
+            home.textsPending = null
+            home.me = home.me?.copy(textsOn = enabled, photonLine = line, textsConfirmedAt = null)
+            if (!enabled) {
+                home.textsLine = null
+                return@async
+            }
+            when {
+                line == null -> Unit
+                // Already texted this line before: just report it, which sends the confirmation text.
+                Api.firstTextSent(this, line) -> firstTextDone(line)
+                else -> {
+                    askedForSms = false // a deliberate switch-on may ask for SMS permission again
+                    home.me?.let { ensureFirstText(it) }
+                }
+            }
+        }
+    }
+
     private fun ensureFirstText(me: Api.Me) {
         val line = me.photonLine ?: return
         if (Api.firstTextSent(this, line)) return
@@ -205,8 +242,11 @@ class MainActivity : ComponentActivity(), BleListener {
 
     // ---- BleListener ----------------------------------------------------
 
+    // Keyed by username, not Bluetooth address: phones rotate their address every
+    // few minutes, so one phone can show up under several addresses. Each username
+    // appears once; the most recent sighting wins.
     override fun onPeer(peer: Peer) {
-        peers[peer.key] = peer
+        peers[peer.username.lowercase()] = peer
         home.peers = peers.values.sortedBy { it.username }
     }
 

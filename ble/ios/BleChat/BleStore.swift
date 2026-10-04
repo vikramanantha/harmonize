@@ -20,7 +20,6 @@ final class BleStore: ObservableObject, BleListener {
     private var peersByKey: [String: Peer] = [:]
     private lazy var method2 = Method2Gatt(listener: self)
     private var runningUsername: String?
-    private var reportingStopped = false
     private var pruneTimer: Timer?
     private var refreshTimer: Timer?
     private let time: DateFormatter = {
@@ -44,7 +43,6 @@ final class BleStore: ObservableObject, BleListener {
     func login(token: String) {
         Api.token = token
         loggedIn = true
-        reportingStopped = false
         startRefreshing()
     }
 
@@ -94,7 +92,8 @@ final class BleStore: ObservableObject, BleListener {
 
     /// Tells the server we're near `username`; the result (or error) goes to the log.
     private func report(_ username: String) async {
-        guard !reportingStopped else { return }
+        // Always reported; with LOOP off the server answers "done" after the first
+        // match, and resumes after a demo reset.
         do {
             let r = try await Api.encounter(username)
             await MainActor.run { onLog(describe(r)) }
@@ -108,8 +107,7 @@ final class BleStore: ObservableObject, BleListener {
         let pct = r.score.map { "\(Int($0 * 100))%" } ?? "?"
         switch r.status {
         case "done":
-            reportingStopped = true
-            return "Your match was already texted; reporting stopped (LOOP is off)"
+            return "Already matched; no more texts until the demo is reset (LOOP is off)"
         case "no_profile": return "\(who): no taste profile in the database yet"
         case "not_a_match": return "\(who): \(pct), not a match"
         case "match_waiting": return "\(who): \(pct), MATCH. Waiting for their phone to see you too"
@@ -122,8 +120,11 @@ final class BleStore: ObservableObject, BleListener {
 
     // MARK: BleListener
 
+    // Keyed by username, not Bluetooth identifier: phones rotate their address every
+    // few minutes, so one phone can show up under several identifiers. Each username
+    // appears once; the most recent sighting wins.
     func onPeer(_ peer: Peer) {
-        peersByKey[peer.key] = peer
+        peersByKey[peer.username.lowercased()] = peer
         publishPeers()
     }
 

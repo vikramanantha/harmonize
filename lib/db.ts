@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS accounts (
   photon_error TEXT,                          -- why adding this number to Photon's Users list failed
   photon_line TEXT,                           -- the Photon number this person must text once first
   first_text_at INTEGER,                      -- when the app reported sending that first text
+  texts_confirmed_at INTEGER,                 -- when the "match texts are on" text was delivered to Photon
+  summary TEXT,                               -- copy of the Instagram summary Muse wrote (shown in developer mode)
+  use_dms INTEGER NOT NULL DEFAULT 0,         -- include reels shared in Instagram messages
   created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS logins (
@@ -34,6 +37,7 @@ CREATE TABLE IF NOT EXISTS logins (
   phone_number TEXT NOT NULL,
   consent INTEGER NOT NULL,
   auto_approve INTEGER NOT NULL DEFAULT 0,  -- user ticked "approve Muse's access to this server for me"
+  use_dms INTEGER NOT NULL DEFAULT 0,       -- user ticked "include reels from my Instagram messages"
   session_id TEXT NOT NULL,
   connect_url TEXT NOT NULL,
   context_id TEXT NOT NULL,
@@ -90,6 +94,9 @@ export type Account = {
   photon_error: string | null;
   photon_line: string | null;
   first_text_at: number | null;
+  texts_confirmed_at: number | null;
+  summary: string | null;
+  use_dms: number;
   created_at: number;
 };
 
@@ -99,10 +106,11 @@ export type Login = {
   phone_number: string;
   consent: number;
   auto_approve: number;
+  use_dms: number;
   session_id: string;
   connect_url: string;
   context_id: string;
-  step: "code" | "password" | "ready";
+  step: import("./muse-browser").LoginStep;
   busy: number;
   expires: number;
 };
@@ -120,6 +128,10 @@ export function db(): DatabaseSync {
     try { database.exec("ALTER TABLE accounts ADD COLUMN photon_error TEXT"); } catch {}
     try { database.exec("ALTER TABLE accounts ADD COLUMN photon_line TEXT"); } catch {}
     try { database.exec("ALTER TABLE accounts ADD COLUMN first_text_at INTEGER"); } catch {}
+    try { database.exec("ALTER TABLE accounts ADD COLUMN texts_confirmed_at INTEGER"); } catch {}
+    try { database.exec("ALTER TABLE accounts ADD COLUMN summary TEXT"); } catch {}
+    try { database.exec("ALTER TABLE accounts ADD COLUMN use_dms INTEGER NOT NULL DEFAULT 0"); } catch {}
+    try { database.exec("ALTER TABLE logins ADD COLUMN use_dms INTEGER NOT NULL DEFAULT 0"); } catch {}
     globalState.harmonyDb = database;
   }
   return globalState.harmonyDb;
@@ -145,17 +157,18 @@ export function accountByCallbackToken(token: string): Account | null {
 }
 
 /** Creates the account on first login, or re-issues a device token on a later one. Returns the plain token. */
-export function upsertAccount(fields: { identifier: string; phone_number: string; consent: boolean; browserbase_context_id: string | null }): { account: Account; deviceToken: string } {
+export function upsertAccount(fields: { identifier: string; phone_number: string; consent: boolean; use_dms?: boolean; browserbase_context_id: string | null }): { account: Account; deviceToken: string } {
   const token = newToken();
   db().prepare(`
-    INSERT INTO accounts (identifier, phone_number, consent, device_token_hash, browserbase_context_id, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO accounts (identifier, phone_number, consent, use_dms, device_token_hash, browserbase_context_id, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (identifier) DO UPDATE SET
       phone_number = excluded.phone_number,
       consent = excluded.consent,
+      use_dms = excluded.use_dms,
       device_token_hash = excluded.device_token_hash,
       browserbase_context_id = excluded.browserbase_context_id
-  `).run(fields.identifier, fields.phone_number, fields.consent ? 1 : 0, hashToken(token), fields.browserbase_context_id, Date.now());
+  `).run(fields.identifier, fields.phone_number, fields.consent ? 1 : 0, fields.use_dms ? 1 : 0, hashToken(token), fields.browserbase_context_id, Date.now());
   const account = db().prepare("SELECT * FROM accounts WHERE identifier = ?").get(fields.identifier) as Account;
   return { account, deviceToken: token };
 }

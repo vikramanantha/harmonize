@@ -48,6 +48,9 @@ export const config = {
   /** How often each account's Instagram summary is refreshed. */
   get summaryRefreshMs() { return num("SUMMARY_REFRESH_MS", 24 * 60 * 60_000); },
 
+  /** Lets any signed-in phone run "Reset demo" (developer mode). Turn off outside of demos. */
+  get demoReset() { return bool("DEMO_RESET", true); },
+
   /** "photon" sends iMessages through Photon; "log" only prints them (local testing). */
   get notifier() {
     const value = env("NOTIFIER", "photon");

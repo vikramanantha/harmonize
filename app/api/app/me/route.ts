@@ -5,11 +5,20 @@ import { db } from "@/lib/db";
 import { matchesFor } from "@/lib/matching";
 import { failIfTimedOut, registerForTexts } from "@/lib/muse-session";
 import { accountById } from "@/lib/db";
+import { tasteProfileByUsername } from "@/lib/spacetime";
 
 export const runtime = "nodejs";
 
 export const GET = handler(async request => {
   let account = failIfTimedOut(requireAccount(request));
+  // Accounts that became ready before the server kept a copy of the summary.
+  if (account.profile_status === "ready" && account.username && !account.summary) {
+    const profile = await tasteProfileByUsername(account.username);
+    if (profile) {
+      db().prepare("UPDATE accounts SET summary = ? WHERE id = ?").run(profile.summary, account.id);
+      account = { ...account, summary: profile.summary };
+    }
+  }
   // Accounts that became ready before Photon was on get registered here, once.
   if (account.profile_status === "ready" && account.consent && config.notifier === "photon" && !account.photon_line && !account.photon_error) {
     await registerForTexts(account);
@@ -25,7 +34,9 @@ export const GET = handler(async request => {
     photon_error: account.photon_error,
     // The app texts this number once (Android automatically, iPhone with one tap)
     // so Photon is allowed to text this person; null when texts are off.
-    photon_line: account.photon_line,
+    photon_line: account.consent ? account.photon_line : null,
+    texts_confirmed_at: account.texts_confirmed_at,
+    summary: account.summary,
     first_text_at: account.first_text_at,
     username,
     name: account.name,

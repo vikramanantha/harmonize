@@ -61,6 +61,13 @@ enum Api {
         /// The Photon number this person must text once before Photon may text them; nil if texts are off.
         let photon_line: String?
         let first_text_at: Double?
+        /// The Match texts switch.
+        let consent: Bool
+        let texts_confirmed_at: Double?
+        let photon_error: String?
+        let phone_number: String
+        /// The Instagram summary Muse wrote; shown in developer mode.
+        let summary: String?
     }
 
     struct Encounter: Decodable {
@@ -71,8 +78,8 @@ enum Api {
         let verdict: String?
     }
 
-    static func loginStart(identifier: String, phone: String, consent: Bool, autoApprove: Bool) async throws -> LoginStep {
-        try await request("POST", "/api/app/login/start", body: ["identifier": identifier, "phone_number": phone, "consent": consent, "auto_approve": autoApprove], auth: false)
+    static func loginStart(identifier: String, phone: String, consent: Bool, autoApprove: Bool, useDms: Bool) async throws -> LoginStep {
+        try await request("POST", "/api/app/login/start", body: ["identifier": identifier, "phone_number": phone, "consent": consent, "auto_approve": autoApprove, "use_dms": useDms], auth: false)
     }
 
     static func loginVerify(loginId: String, credential: String) async throws -> LoginStep {
@@ -84,6 +91,23 @@ enum Api {
     }
 
     private struct Ok: Decodable { let ok: Bool }
+
+    private struct TextsResult: Decodable { let enabled: Bool; let photon_line: String?; let photon_error: String? }
+
+    /// Turns match texts on or off; returns the Photon line to text first (when on).
+    static func setTexts(_ enabled: Bool) async throws -> String? {
+        let result: TextsResult = try await request("POST", "/api/app/texts", body: ["enabled": enabled], auth: true)
+        if let error = result.photon_error { throw ApiError.message(error) }
+        return result.photon_line
+    }
+
+    private struct ResetResult: Decodable { let notifications: Int; let sightings: Int }
+
+    /// Developer mode: clears who has been texted, for everyone. Returns how many texts were cleared.
+    static func resetDemo() async throws -> Int {
+        let result: ResetResult = try await request("POST", "/api/app/dev/reset", body: [:], auth: true)
+        return result.notifications
+    }
 
     static func reportFirstText(line: String) async throws {
         let _: Ok = try await request("POST", "/api/app/photon/first-text", body: ["line": line], auth: true)

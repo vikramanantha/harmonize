@@ -137,3 +137,15 @@ export function matchesFor(username: string): MatchRow[] {
     };
   });
 }
+
+/**
+ * Restarts the demo for everyone: forgets who has been texted (so pairs can be
+ * texted again and LOOP=false phones resume) and all recent sightings. Match
+ * scores are kept; they only depend on the summaries.
+ */
+export function resetDemo(): { notifications: number; sightings: number } {
+  const notifications = Number(db().prepare("DELETE FROM notifications").run().changes);
+  const sightings = Number(db().prepare("DELETE FROM sightings").run().changes);
+  return { notifications, sightings };
+}
+

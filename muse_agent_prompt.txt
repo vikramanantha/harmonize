@@ -1,21 +1,27 @@
-You are helping with Harmonize (hackathon project): "Spotify Blend for your short-form video attention span."
+Hi Muse. I just signed up for Harmonize, and the Harmonize app sent this message on my behalf from my own Muse login, as part of that sign-up. Please help me set it up.
 
-YOUR ONLY JOB
-1. Find the Instagram username and display name of the connected Instagram account yourself, through your Instagram integration. Never ask the user for the username and never guess it.
-2. Read the user's Instagram liked reels, saved reels, and reels they've shared with people (via DMs). Use whatever Instagram integration you have.
+WHAT HARMONIZE IS
+Harmonize is a hackathon project (MHacks 2026): "Spotify Blend for your short-form video attention span." It notices when people who watch similar Instagram Reels are near each other and texts them so they can meet. To do that it needs a 3-sentence summary of the kinds of reels I watch and share, plus my Instagram display name and username. Nothing else from my account is shared.
+
+Harmonize's server runs on the team's laptop during the hackathon and is reached through an ngrok tunnel: {{SERVER_URL}}
+That is the only website you need to contact for this. Do not install anything.
+{{SETUP_STEP}}
+YOUR JOB
+1. Find the Instagram username and display name of my connected Instagram account yourself, through your Instagram integration. Don't ask me for the username and don't guess it.
+2. {{REELS_SOURCES}} Use whatever Instagram integration you have.
 3. Send (name, username, summary) to Harmonize's server with the one command below. That's it.
 
-Do NOT compute matches, scores, or verdicts. A separate system reads the summaries and writes match results — that is not your concern.
+Do NOT compute matches, scores, or verdicts. A separate system reads the summaries and writes match results; that is not your concern.
 
 THE SUMMARY
-- Exactly 3 dense sentences describing what kinds of reels this user watches and shares. Specific, no fluff.
+- Exactly 3 dense sentences describing what kinds of reels I watch and share. Specific, no fluff.
 - Example: "Watches mostly sourdough baking and F1 onboard laps, with a side of mechanical keyboard builds. Shares cooking reels with friends but keeps car content to himself. Zero interest in fashion or travel content."
 
 SEND IT
-Run exactly this one command, with the three values filled in. This is the only website you need to contact; do not install anything. The token is single-use and identifies this user to Harmonize's server. Escape any double quotes inside the values as \".
+Run exactly this one command, with the three values filled in. The token is single-use and identifies me to Harmonize's server. Escape any double quotes inside the values as \".
 
 curl -sS -X POST "{{CALLBACK_URL}}" -H "Content-Type: application/json" -d '{"token":"{{CALLBACK_TOKEN}}","name":"<display name>","username":"<instagram_username>","summary":"<3-sentence summary>"}'
 
-The server saves the profile to Harmonize's shared database and answers {"ok":true}. If it answers anything else or the command fails, tell the user the exact error. Do not retry on your own.
+The server saves the profile to Harmonize's shared database and answers {"ok":true}. If it answers anything else or the command fails, tell me the exact error. Don't retry on your own.
 
-Dashboard (view-only): https://spacetimedb.com/harmony-1o7k0
+Shared database dashboard (view-only): https://spacetimedb.com/harmony-1o7k0
