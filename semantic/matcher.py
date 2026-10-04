@@ -46,6 +46,31 @@ def similarity(summary_a: str, summary_b: str) -> float:
   return float(a @ b)
 
 
+def phrases(summary: str) -> list[str]:
+  """The summary's comma-separated interest phrases (Muse writes 20)."""
+  return [p.strip() for p in summary.replace("\n", ",").split(",") if p.strip()]
+
+
+def overlap(summary_a: str, summary_b: str, limit: int = 3, min_score: float = 0.5) -> list[dict]:
+  """The closest phrase pairs between two summaries, best first. Each phrase is
+  used at most once, and pairs below min_score are dropped as unrelated."""
+  pa, pb = phrases(summary_a), phrases(summary_b)
+  if not pa or not pb:
+    return []
+  sims = model.encode(pa, normalize_embeddings=True) @ model.encode(pb, normalize_embeddings=True).T
+  ranked = sorted(((float(sims[i, j]), i, j) for i in range(len(pa)) for j in range(len(pb))), reverse=True)
+  used_a, used_b, pairs = set(), set(), []
+  for score, i, j in ranked:
+    if score < min_score or len(pairs) == limit:
+      break
+    if i in used_a or j in used_b:
+      continue
+    used_a.add(i)
+    used_b.add(j)
+    pairs.append({"a": pa[i], "b": pb[j], "score": score})
+  return pairs
+
+
 def generate_and_store_profile(user_id: str, summary_paragraph: str):
   """Generates a 384-dim vector from text and saves/updates it in NeonDB."""
   embedding = model.encode(summary_paragraph)

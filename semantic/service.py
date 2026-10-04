@@ -1,6 +1,7 @@
 """HTTP front for matcher.similarity(), used by the Harmony server (lib/scorer.ts).
 
     POST /similarity  {"summary_a": "...", "summary_b": "..."}  ->  {"score": 0.73}
+    POST /overlap     {"summary_a": "...", "summary_b": "..."}  ->  {"pairs": [{"a": "...", "b": "...", "score": 0.81}]}
     GET  /health                                                ->  {"ok": true}
 
 Start it with ./run.sh (listens on 127.0.0.1:8008 by default; set PORT to change).
@@ -9,7 +10,7 @@ import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from matcher import similarity
+from matcher import overlap, similarity
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -28,7 +29,7 @@ class Handler(BaseHTTPRequestHandler):
       self._reply(404, {"error": "not found"})
 
   def do_POST(self):
-    if self.path != "/similarity":
+    if self.path not in ("/similarity", "/overlap"):
       return self._reply(404, {"error": "not found"})
     try:
       length = int(self.headers.get("Content-Length", 0))
@@ -38,6 +39,12 @@ class Handler(BaseHTTPRequestHandler):
         raise ValueError("summary_a and summary_b must be non-empty strings")
     except (ValueError, KeyError, TypeError) as e:
       return self._reply(400, {"error": f"bad request: {e}"})
+    if self.path == "/overlap":
+      try:
+        return self._reply(200, {"pairs": overlap(a, b)})
+      except Exception as e:
+        print(f"Overlap failed: {type(e).__name__}: {e}")
+        return self._reply(500, {"error": "Finding shared interests failed; check the semantic service terminal."})
     try:
       score = similarity(a, b)
     except Exception as e:
