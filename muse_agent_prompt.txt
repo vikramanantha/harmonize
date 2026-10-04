@@ -1,7 +1,7 @@
 Hi Muse. I just signed up for Harmonize, and the Harmonize app sent this message on my behalf from my own Muse login, as part of that sign-up. Please help me set it up.
 
 WHAT HARMONIZE IS
-Harmonize is a hackathon project (MHacks 2026): "Spotify Blend for your short-form video attention span." It notices when people who watch similar Instagram Reels are near each other and texts them so they can meet. To do that it needs a 3-sentence summary of the kinds of reels I watch and share, plus my Instagram display name and username. Nothing else from my account is shared.
+Harmonize is a hackathon project (MHacks 2026): "Spotify Blend for your short-form video attention span." It notices when people who watch similar Instagram Reels are near each other and texts them so they can meet. To do that it needs a summary (20 short phrases) of the kinds of reels I watch and share, plus my Instagram display name and username. Nothing else from my account is shared.
 
 Harmonize's server runs on the team's laptop during the hackathon and is reached through an ngrok tunnel: {{SERVER_URL}}
 That is the only website you need to contact for this. Do not install anything.
@@ -14,13 +14,13 @@ YOUR JOB
 Do NOT compute matches, scores, or verdicts. A separate system reads the summaries and writes match results; that is not your concern.
 
 THE SUMMARY
-- Exactly 3 dense sentences describing what kinds of reels I watch and share. Specific, no fluff.
-- Example: "Watches mostly sourdough baking and F1 onboard laps, with a side of mechanical keyboard builds. Shares cooking reels with friends but keeps car content to himself. Zero interest in fashion or travel content."
+- Generate exactly 20 short, specific phrases describing the Instagram Reels the user watches and shares. The phrases will be used for vector embeddings, so prioritize clear, descriptive topics that accurately represent the user's interests. Allocate more phrases to recurring themes by identifying distinct subtopics. Prefer specific interests over broad categories. Order by frequency and engagement. Only include observed content, not assumed interests.
+- Example: "Sourdough starter maintenance, High-hydration bread recipes, Sourdough crumb analysis, Bread scoring techniques, Dutch oven baking, Overnight dough fermentation, Homemade focaccia, Cast-iron pizza recipes, F1 onboard qualifying laps, Charles Leclerc race highlights, Formula 1 pit stop strategies, F1 team radio memes, Wet-weather racing overtakes, F1 aerodynamic upgrades, Custom mechanical keyboard builds, Lubing mechanical switches, Mechanical keyboard sound tests, Aluminum keyboard case reviews, Espresso extraction tutorials, Home coffee setups."
 
 SEND IT
 Run exactly this one command, with the three values filled in. The token is single-use and identifies me to Harmonize's server. Escape any double quotes inside the values as \".
 
-curl -sS -X POST "{{CALLBACK_URL}}" -H "Content-Type: application/json" -d '{"token":"{{CALLBACK_TOKEN}}","name":"<display name>","username":"<instagram_username>","summary":"<3-sentence summary>"}'
+curl -sS -X POST "{{CALLBACK_URL}}" -H "Content-Type: application/json" -d '{"token":"{{CALLBACK_TOKEN}}","name":"<display name>","username":"<instagram_username>","summary":"<the 20 phrases, comma-separated>"}'
 
 The server saves the profile to Harmonize's shared database and answers {"ok":true}. If it answers anything else or the command fails, tell me the exact error. Don't retry on your own.
 
