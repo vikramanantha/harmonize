@@ -8,8 +8,8 @@ YOUR ONLY JOB
 Do NOT compute matches, scores, or verdicts. A separate system reads the summaries and writes match results — that is not your concern.
 
 THE SUMMARY
-- Exactly 3 dense sentences describing what kinds of reels this user watches and shares. Specific, no fluff.
-- Example: "Watches mostly sourdough baking and F1 onboard laps, with a side of mechanical keyboard builds. Shares cooking reels with friends but keeps car content to himself. Zero interest in fashion or travel content."
+- Generate exactly 20 short, specific phrases describing the Instagram Reels the user watches and shares. The phrases will be used for vector embeddings, so prioritize clear, descriptive topics that accurately represent the user's interests. Allocate more phrases to recurring themes by identifying distinct subtopics. Prefer specific interests over broad categories. Order by frequency and engagement. Only include observed content, not assumed interests.
+- Example: "Sourdough starter maintenance, High-hydration bread recipes, Sourdough crumb analysis, Bread scoring techniques, Dutch oven baking, Overnight dough fermentation, Homemade focaccia, Cast-iron pizza recipes, F1 onboard qualifying laps, Charles Leclerc race highlights, Formula 1 pit stop strategies, F1 team radio memes, Wet-weather racing overtakes, F1 aerodynamic upgrades, Custom mechanical keyboard builds, Lubing mechanical switches, Mechanical keyboard sound tests, Aluminum keyboard case reviews, Espresso extraction tutorials, Home coffee setups."
 
 SEND IT
 Run exactly this one command, with the three values filled in. This is the only website you need to contact; do not install anything. The token is single-use and identifies this user to Harmonize's server. Escape any double quotes inside the values as \".
