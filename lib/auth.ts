@@ -11,10 +11,10 @@ export class HttpError extends Error {
   }
 }
 
-export function requireAccount(request: Request): Account {
+export async function requireAccount(request: Request): Promise<Account> {
   const header = request.headers.get("authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
-  const account = token ? accountByToken(token) : null;
+  const account = token ? (await accountByToken(token)) : null;
   if (!account) throw new HttpError(401, "Not logged in. Open the app and log in again.");
   return account;
 }

@@ -15,11 +15,11 @@ export function startRefreshScheduler() {
 }
 
 export async function refreshDueAccounts() {
-  const due = db().prepare(`
+  const due = (await db().prepare(`
     SELECT * FROM accounts
     WHERE profile_status = 'ready' AND summarized_at < ?
       AND (prompted_at IS NULL OR prompted_at < ?)   -- not already waiting on a callback
-  `).all(Date.now() - config.summaryRefreshMs, Date.now() - config.museCallbackTimeoutMs) as Account[];
+  `).all(Date.now() - config.summaryRefreshMs, Date.now() - config.museCallbackTimeoutMs)) as Account[];
   for (const account of due) await refreshAccount(account);
 }
 
@@ -31,6 +31,6 @@ export async function refreshAccount(account: Account) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`Summary refresh failed for ${account.username}: ${message}`);
     // Keeps the existing profile usable; the error shows in the app.
-    db().prepare("UPDATE accounts SET refresh_error = ?, summarized_at = ? WHERE id = ?").run(message, Date.now(), account.id);
+    (await db().prepare("UPDATE accounts SET refresh_error = ?, summarized_at = ? WHERE id = ?").run(message, Date.now(), account.id));
   }
 }

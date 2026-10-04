@@ -24,4 +24,4 @@ curl -sS -X POST "{{CALLBACK_URL}}" -H "Content-Type: application/json" -d '{"to
 
 The server saves the profile to Harmonize's shared database and answers {"ok":true}. If it answers anything else or the command fails, tell me the exact error. Don't retry on your own.
 
-Shared database dashboard (view-only): https://spacetimedb.com/harmony-1o7k0
+The server stores the profile in Neon. Only contact the callback URL above.

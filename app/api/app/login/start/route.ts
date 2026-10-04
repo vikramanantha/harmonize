@@ -3,7 +3,7 @@
 import { handler, HttpError, json, readJson } from "@/lib/auth";
 import { config } from "@/lib/config";
 import { mockLogin, startLogin } from "@/lib/muse-session";
-import { isValidUsername } from "@/lib/spacetime";
+import { isValidUsername } from "@/lib/profiles";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;

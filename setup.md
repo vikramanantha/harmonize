@@ -1,20 +1,20 @@
 # Harmonize setup
 
-Harmonize matches people nearby by what they watch on Instagram Reels. Muse reads each person's Instagram and writes a taste profile to the shared SpacetimeDB; the phones find each other over Bluetooth; the server scores pairs and texts both people through Photon when they match.
+Harmonize matches people nearby by what they watch on Instagram Reels. Muse reads each person's Instagram and posts a taste profile to the server, which stores it in Neon; the phones find each other over Bluetooth; the server scores pairs and texts both people through Photon when they match.
 
 ```
 phone (Android/iOS)  --Bluetooth-->  phone
    |  reports "I'm near @username"
    v
 Harmonize server (Next.js, this repo)  --> semantic/service.py (similarity)
-   |  login via Browserbase, prompts Muse      --> SpacetimeDB harmony-1o7k0 (taste_profile, match_result)
+   |  login via Browserbase, prompts Muse      --> Neon Postgres (app tables + pgvector)
    |                                           --> Photon (iMessage)
-Muse (Meta's cloud) --writes taste_profile, then calls back--> server
+Muse (Meta's cloud) --posts profile callback--> server
 ```
 
 ## 1. Server
 
-Needs Node 22.5+ (built-in SQLite) and Python 3.
+Needs Node 24 LTS and Python 3 (a version supported by the Python dependencies).
 
 ```bash
 cd mhacks26
@@ -26,16 +26,27 @@ cp .env.example .env     # then fill it in, see below
 
 | Variable | Where it comes from |
 |---|---|
+| `DATABASE_URL` | Neon Console -> Connect -> PostgreSQL connection string. Copy the complete URL, including password and SSL options. Both Node and Python read it from this project's `.env`. |
 | `BROWSERBASE_API_KEY` | Browserbase dashboard → Settings. `BROWSERBASE_PROJECT_ID` is optional; the project is inferred from the key. |
 | `SERVER_PUBLIC_URL` | The public URL of this server. Muse calls it back from Meta's cloud, so run `ngrok http 3000` and paste the `https://….ngrok.app` URL. |
 | `SPECTRUM_PROJECT_ID`, `SPECTRUM_PROJECT_SECRET` | Photon dashboard (https://app.photon.codes) → project Settings. |
 | `MATCH_THRESHOLD` | Cosine similarity needed for a match. Default 0.8; two clearly similar test profiles scored 0.60, so expect to tune this down (0.6–0.7). |
 | `LOOP` | `false`: a phone stops reporting after its first texted match. |
 
+Create the tables once after setting `DATABASE_URL`:
+
+```bash
+npm run db:setup
+```
+
+This creates normal tables and a `user_profiles` table with `vector(384)` in the
+same Neon database. No Neon API key or separate authentication service is needed.
+Existing SQLite/SpacetimeDB rows are not imported automatically.
+
 Start the three processes (three terminals):
 
 ```bash
-# 1. similarity service (first run: python3 -m venv semantic/.venv && semantic/.venv/bin/pip install sentence-transformers)
+# 1. similarity service (first run: python3 -m venv semantic/.venv && semantic/.venv/bin/pip install -r semantic/requirements.txt)
 semantic/run.sh
 
 # 2. public tunnel
@@ -56,7 +67,8 @@ node --env-file=.env scripts/photon-test.mjs +1YOURNUMBER
 Set `MOCK_MUSE=true` and `NOTIFIER=log` in `.env`. Create a taste profile by hand, then log in with a `mock_username`:
 
 ```bash
-spacetime call -s maincloud --anonymous harmony-1o7k0 save_taste_profile "Test A" "test_a" "Three sentences about their reels."
+# First run this SQL in the Neon SQL Editor:
+# INSERT INTO taste_profile (name, username, summary) VALUES ('Test A', 'test_a', 'Three sentences about their reels.');
 curl -X POST localhost:3000/api/app/login/start -H 'Content-Type: application/json' \
   -d '{"identifier":"a@example.com","phone_number":"+15550000001","consent":true,"auto_approve":true,"mock_username":"test_a"}'
 ```
@@ -93,7 +105,7 @@ cd mhacks26/ble/ios && xcodegen && open BleChat.xcodeproj
 ## 4. What happens on a match
 
 1. Each phone reads the other's username over Bluetooth (about every 30 s) and reports it to the server.
-2. The server scores the pair once (`match_result` in SpacetimeDB, cached locally) and checks `MATCH_THRESHOLD`.
+2. The server scores the pair once (`match_result` and cached `scores` in Neon) and checks `MATCH_THRESHOLD`. The Python service saves the generated embeddings in Neon's `user_profiles` table, retaining the same model and normalized dot-product calculation.
 3. If it's a match **and** both phones reported each other within `PROXIMITY_WINDOW_MS` (10 s) **and** both consented, both get an iMessage with the score, verdict and each other's names. A pair is texted at most once per `ENCOUNTER_COOLDOWN_MS` (1 h).
 4. With `LOOP=false`, a phone that has been texted stops reporting.
 
@@ -101,7 +113,7 @@ Both phones show the result of every report in their log (`@name: 72%, MATCH. Wa
 
 ## Muse site approvals
 
-Muse asks before contacting a new website ("Allow Muse to share information with …?"). The prompt only contacts one site, this server's URL, and the server writes the profile to SpacetimeDB itself. So each Muse account taps **Always allow this site** once, the first time, and the daily refresh doesn't ask again. The ngrok free plan gives your account one fixed `*.ngrok-free.dev` domain; keep using it so the approval stays valid.
+Muse asks before contacting a new website ("Allow Muse to share information with …?"). The prompt only contacts one site, this server's URL, and the server writes the profile to Neon itself. So each Muse account taps **Always allow this site** once, the first time, and the daily refresh doesn't ask again. The ngrok free plan gives your account one fixed `*.ngrok-free.dev` domain; keep using it so the approval stays valid.
 
 ## Developer mode
 

@@ -48,8 +48,18 @@ earlier web demo and are slated for removal; the phone app replaces them.
 | Muse login + daily summary prompt | `lib/muse-session.ts`, `muse_agent_prompt.txt` |
 | Scoring (sentence-transformers) | `semantic/service.py`, `lib/scorer.ts` |
 | Matching, proximity check, texting | `lib/matching.ts`, `lib/notify.ts` (Photon) |
-| Shared database | SpacetimeDB `harmony-1o7k0`, `lib/spacetime.ts` |
-| Private state (phones, tokens, scores) | SQLite at `DB_PATH`, `lib/db.ts` |
+| Profiles and match results | Neon Postgres, `lib/profiles.ts` |
+| Accounts, sessions, sightings, scores and texts | Neon Postgres, `lib/db.ts` |
+| Vectors | Same Neon database, `user_profiles.embedding` (`vector(384)`) |
+
+Copy Neon Console -> Connect -> PostgreSQL connection string into `.env` as
+`DATABASE_URL="postgresql://USER:PASSWORD@HOST/neondb?sslmode=require"`.
+Use the same URL for Node and Python; no Neon API key or Neon Auth setup is needed.
+Run `npm run db:setup` once to create the tables and enable pgvector.
+Install Python dependencies with `python -m pip install -r semantic/requirements.txt`.
+The model and score calculation are unchanged; generated vectors are saved when
+the similarity service scores summaries. Existing SQLite/SpacetimeDB data is not
+automatically imported; this setup starts with an empty Neon database.
 
 ## Muse browser integration
 

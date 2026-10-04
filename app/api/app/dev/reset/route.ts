@@ -8,9 +8,9 @@ import { resetDemo } from "@/lib/matching";
 export const runtime = "nodejs";
 
 export const POST = handler(async request => {
-  const account = requireAccount(request);
+  const account = (await requireAccount(request));
   if (!config.demoReset) throw new HttpError(403, "Demo reset is turned off on this server (DEMO_RESET=false).");
-  const cleared = resetDemo();
+  const cleared = (await resetDemo());
   console.log(`Demo reset by ${account.username ?? account.id}: ${cleared.notifications} texts, ${cleared.sightings} sightings cleared`);
   return json({ ok: true, ...cleared });
 });

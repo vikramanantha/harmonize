@@ -2,9 +2,12 @@
 // all recent sightings (the same as "Reset demo" in the app's developer mode).
 // Match scores are kept. Run while the server is running or not:
 //   node --env-file=.env scripts/reset-demo.mjs
-import { DatabaseSync } from "node:sqlite";
+import { neon } from "@neondatabase/serverless";
 
-const db = new DatabaseSync(process.env.DB_PATH || "./data/harmony.sqlite");
-const texts = db.prepare("DELETE FROM notifications").run().changes;
-const sightings = db.prepare("DELETE FROM sightings").run().changes;
-console.log(`Demo reset: cleared ${texts} texts and ${sightings} sightings.`);
+if (!process.env.DATABASE_URL) throw new Error("Set DATABASE_URL in .env first.");
+const sql = neon(process.env.DATABASE_URL);
+const [texts, sightings] = await sql.transaction([
+  sql.query("DELETE FROM notifications", [], { fullResults: true }),
+  sql.query("DELETE FROM sightings", [], { fullResults: true }),
+]);
+console.log(`Demo reset: cleared ${texts.rowCount} texts and ${sightings.rowCount} sightings.`);

@@ -1,4 +1,35 @@
+import hashlib
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
+
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+
+
+def connect():
+  import psycopg2
+  url = os.environ.get("DATABASE_URL")
+  if not url:
+    raise ValueError("Set DATABASE_URL in the project's .env first.")
+  return psycopg2.connect(url)
+
+
+def store_profiles(profiles):
+  conn = connect()
+  try:
+    with conn, conn.cursor() as cur:
+      for user_id, summary, embedding in profiles:
+        cur.execute(
+          """INSERT INTO user_profiles (user_id, summary_text, embedding)
+             VALUES (%s, %s, %s::vector)
+             ON CONFLICT (user_id) DO UPDATE SET
+               summary_text = EXCLUDED.summary_text, embedding = EXCLUDED.embedding""",
+          (user_id, summary, str(embedding.tolist())),
+        )
+  finally:
+    conn.close()
 
 # 1. Initialize Hugging Face model (outputs 384-dimensional vectors)
 model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -7,45 +38,22 @@ model = SentenceTransformer("all-MiniLM-L6-v2")
 def similarity(summary_a: str, summary_b: str) -> float:
   """Cosine similarity of two summaries, the same number pgvector's <=> gives (1 - distance)."""
   a, b = model.encode([summary_a, summary_b], normalize_embeddings=True)
+  # Content IDs let the existing summary-only API persist vectors unchanged.
+  store_profiles([
+    (hashlib.sha256(text.encode("utf-8")).hexdigest(), text, vector)
+    for text, vector in [(summary_a, a), (summary_b, b)]
+  ])
   return float(a @ b)
-
-# Replace with your actual NeonDB connection string
-DATABASE_URL = "postgresql://user:password@your-neon-host.neon.tech/neondb?sslmode=require"
 
 
 def generate_and_store_profile(user_id: str, summary_paragraph: str):
   """Generates a 384-dim vector from text and saves/updates it in NeonDB."""
-  import psycopg2
-  from pgvector.psycopg2 import register_vector
-  embedding = model.encode(summary_paragraph).tolist()
-
-  conn = psycopg2.connect(DATABASE_URL)
-  register_vector(conn)  # Tells psycopg2 how to handle vector types
-  cur = conn.cursor()
-
-  cur.execute(
-      """
-        INSERT INTO user_profiles (user_id, summary_text, embedding)
-        VALUES (%s, %s, %s)
-        ON CONFLICT (user_id) 
-        DO UPDATE SET summary_text = EXCLUDED.summary_text, embedding = EXCLUDED.embedding;
-    """,
-        (user_id, summary_paragraph, embedding),
-  )
-
-  conn.commit()
-  cur.close()
-  conn.close()
+  embedding = model.encode(summary_paragraph)
+  store_profiles([(user_id, summary_paragraph, embedding)])
 
 
 def compare_user_profiles(user_id_1: str, user_id_2: str) -> float:
   """Compares two user profiles using pgvector cosine distance calculation."""
-  import psycopg2
-  from pgvector.psycopg2 import register_vector
-  conn = psycopg2.connect(DATABASE_URL)
-  register_vector(conn)
-  cur = conn.cursor()
-
   query = """
         SELECT 
             1 - (p1.embedding <=> p2.embedding) AS semantic_similarity
@@ -53,11 +61,13 @@ def compare_user_profiles(user_id_1: str, user_id_2: str) -> float:
         WHERE p1.user_id = %s AND p2.user_id = %s;
     """
 
-  cur.execute(query, (user_id_1, user_id_2))
-  result = cur.fetchone()
-
-  cur.close()
-  conn.close()
+  conn = connect()
+  try:
+    with conn, conn.cursor() as cur:
+      cur.execute(query, (user_id_1, user_id_2))
+      result = cur.fetchone()
+  finally:
+    conn.close()
 
   if result:
     return float(result[0])

@@ -1,17 +1,17 @@
 // Muse calls this with its result (see muse_agent_prompt.txt); the server writes
-// it to SpacetimeDB, so Muse only ever contacts this one URL:
+// it to Neon, so Muse only ever contacts this one URL:
 // {token, name, username, summary} -> {ok: true}
 import { handler, HttpError, json, readJson } from "@/lib/auth";
 import { accountByCallbackToken } from "@/lib/db";
 import { completeProfile } from "@/lib/muse-session";
-import { isValidUsername } from "@/lib/spacetime";
+import { isValidUsername } from "@/lib/profiles";
 
 export const runtime = "nodejs";
 
 export const POST = handler(async request => {
   const body = await readJson(request);
   if (typeof body.token !== "string" || !body.token) throw new HttpError(400, "Missing token.");
-  const account = accountByCallbackToken(body.token);
+  const account = (await accountByCallbackToken(body.token));
   if (!account) throw new HttpError(404, "Unknown or already-used token.");
   if (!isValidUsername(body.username)) throw new HttpError(400, "username must be a valid Instagram username.");
   const name = typeof body.name === "string" ? body.name.trim() : "";

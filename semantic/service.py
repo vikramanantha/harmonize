@@ -38,7 +38,12 @@ class Handler(BaseHTTPRequestHandler):
         raise ValueError("summary_a and summary_b must be non-empty strings")
     except (ValueError, KeyError, TypeError) as e:
       return self._reply(400, {"error": f"bad request: {e}"})
-    self._reply(200, {"score": similarity(a, b)})
+    try:
+      score = similarity(a, b)
+    except Exception as e:
+      print(f"Similarity failed: {type(e).__name__}")
+      return self._reply(500, {"error": "Scoring or vector storage failed; check the semantic service terminal."})
+    self._reply(200, {"score": score})
 
   def log_message(self, fmt, *args):
     print("%s - %s" % (self.address_string(), fmt % args))

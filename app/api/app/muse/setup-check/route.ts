@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 export const POST = handler(async request => {
   const body = await readJson(request);
   if (typeof body.check !== "string" || !body.check) throw new HttpError(400, "Missing check.");
-  const result = db().prepare("UPDATE setup_checks SET received_at = ? WHERE token = ? AND received_at IS NULL").run(Date.now(), body.check);
+  const result = (await db().prepare("UPDATE setup_checks SET received_at = ? WHERE token = ? AND received_at IS NULL").run(Date.now(), body.check));
   if (result.changes === 0) throw new HttpError(404, "Unknown or already-used check.");
   console.log("Muse setup check received");
   return json({ ok: true });

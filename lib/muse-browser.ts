@@ -169,13 +169,13 @@ export async function submitPrompt(page: Page, prompt: string) {
  * are left alone. Returns true if it clicked, false if [done] became true first
  * (the site was already allowed) or [timeoutMs] passed.
  */
-export async function approveSite(page: Page, host: string, done: () => boolean, timeoutMs: number): Promise<boolean> {
+export async function approveSite(page: Page, host: string, done: () => boolean | Promise<boolean>, timeoutMs: number): Promise<boolean> {
   return approveCard(page, new RegExp(`allow muse to share information with\\s+${host.replace(/[.]/g, "\\.")}`, "i"), host, done, timeoutMs);
 }
 
-async function approveCard(page: Page, cardText: RegExp, what: string, done: () => boolean, timeoutMs: number): Promise<boolean> {
+async function approveCard(page: Page, cardText: RegExp, what: string, done: () => boolean | Promise<boolean>, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline && !done()) {
+  while (Date.now() < deadline && !(await done())) {
     const card = page.getByText(cardText).first();
     if (await card.isVisible().catch(() => false)) {
       // Exact name: a looser match also hits the card itself (its name contains

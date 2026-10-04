@@ -24,12 +24,7 @@ function bool(name: string, fallback: boolean): boolean {
 export const config = {
   /** Where Muse (running in Meta's cloud) reaches this server, e.g. an ngrok URL. */
   get publicUrl() { return env("SERVER_PUBLIC_URL").replace(/\/$/, ""); },
-  get dbPath() { return env("DB_PATH", "./data/harmony.sqlite"); },
-
-  spacetime: {
-    get host() { return env("SPACETIME_HOST", "https://maincloud.spacetimedb.com"); },
-    get database() { return env("SPACETIME_DB", "harmony-1o7k0"); },
-  },
+  get databaseUrl() { return env("DATABASE_URL"); },
 
   /** The Python similarity service in semantic/service.py. */
   get semanticUrl() { return env("SEMANTIC_URL", "http://127.0.0.1:8008").replace(/\/$/, ""); },
@@ -67,7 +62,7 @@ export const config = {
 
   /**
    * Testing without Muse/Browserbase: login succeeds immediately for a username
-   * whose taste_profile row you created by hand with the spacetime CLI.
+   * whose taste_profile row you created by hand in Neon.
    */
   get mockMuse() { return bool("MOCK_MUSE", false); },
 };

@@ -8,11 +8,11 @@ import { confirmTexts } from "@/lib/muse-session";
 export const runtime = "nodejs";
 
 export const POST = handler(async request => {
-  const account = requireAccount(request);
+  const account = (await requireAccount(request));
   const body = await readJson(request);
   if (!account.photon_line || body.line !== account.photon_line) throw new HttpError(400, "That isn't this account's Photon line.");
-  db().prepare("UPDATE accounts SET first_text_at = ? WHERE id = ?").run(Date.now(), account.id);
+  (await db().prepare("UPDATE accounts SET first_text_at = ? WHERE id = ?").run(Date.now(), account.id));
   console.log(`First text to Photon sent for ${account.username ?? account.id}`);
-  confirmTexts(accountById(account.id)!);
+  confirmTexts((await accountById(account.id))!);
   return json({ ok: true });
 });

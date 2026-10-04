@@ -12,7 +12,7 @@ import { approveSite, browserbase, CODE_FIELDS, createContext, PASSWORD_FIELDS, 
 import { registerRecipient, sendTextsConfirmation } from "./notify";
 import { retryFailedTexts } from "./matching";
 import { buildMusePrompt } from "./prompts";
-import { saveTasteProfile, tasteProfileByUsername } from "./spacetime";
+import { saveTasteProfile, tasteProfileByUsername } from "./profiles";
 
 const LOGIN_TTL_MS = 540_000; // under Browserbase's 600 s session timeout
 const MAX_PENDING_LOGINS = 5;
@@ -27,32 +27,32 @@ async function alreadyLoggedIn(page: import("playwright-core").Page): Promise<bo
 
 export type LoginInput = { identifier: string; phone_number: string; consent: boolean; auto_approve: boolean; use_dms: boolean };
 
-function loginById(id: string): Login | null {
-  return (db().prepare("SELECT * FROM logins WHERE id = ?").get(id) as Login | undefined) ?? null;
+async function loginById(id: string): Promise<Login | null> {
+  return ((await db().prepare("SELECT * FROM logins WHERE id = ?").get(id)) as Login | undefined) ?? null;
 }
 
-function setStep(id: string, step: Login["step"]) {
-  db().prepare("UPDATE logins SET step = ? WHERE id = ?").run(step, id);
+async function setStep(id: string, step: Login["step"]) {
+  (await db().prepare("UPDATE logins SET step = ? WHERE id = ?").run(step, id));
 }
 
-function setBusy(id: string, busy: boolean) {
-  db().prepare("UPDATE logins SET busy = ? WHERE id = ?").run(busy ? 1 : 0, id);
+async function setBusy(id: string, busy: boolean) {
+  (await db().prepare("UPDATE logins SET busy = ? WHERE id = ?").run(busy ? 1 : 0, id));
 }
 
 async function dropLogin(login: Login) {
-  db().prepare("DELETE FROM logins WHERE id = ?").run(login.id);
+  (await db().prepare("DELETE FROM logins WHERE id = ?").run(login.id));
   await release(login.session_id).catch(() => {});
 }
 
 async function expireLogins() {
-  const expired = db().prepare("SELECT * FROM logins WHERE expires < ? AND busy = 0").all(Date.now()) as Login[];
+  const expired = (await db().prepare("SELECT * FROM logins WHERE expires < ? AND busy = 0").all(Date.now())) as Login[];
   for (const login of expired) await dropLogin(login);
 }
 
 /** Step 1: opens Muse in a remote browser and submits the email/mobile. */
 export async function startLogin(input: LoginInput): Promise<{ login_id: string; step: Login["step"] }> {
   await expireLogins();
-  const pending = (db().prepare("SELECT COUNT(*) AS n FROM logins").get() as { n: number }).n;
+  const pending = ((await db().prepare("SELECT COUNT(*) AS n FROM logins").get()) as { n: number }).n;
   if (pending >= MAX_PENDING_LOGINS) throw new MuseError("All browser slots are busy. Try again shortly.");
 
   const contextId = await createContext(`harmony-${randomUUID()}`);
@@ -71,9 +71,9 @@ export async function startLogin(input: LoginInput): Promise<{ login_id: string;
     busy: 1,
     expires: Date.now() + LOGIN_TTL_MS,
   };
-  db().prepare(`INSERT INTO logins (id, identifier, phone_number, consent, auto_approve, use_dms, session_id, connect_url, context_id, step, busy, expires)
+  (await db().prepare(`INSERT INTO logins (id, identifier, phone_number, consent, auto_approve, use_dms, session_id, connect_url, context_id, step, busy, expires)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(login.id, login.identifier, login.phone_number, login.consent, login.auto_approve, login.use_dms, login.session_id, login.connect_url, login.context_id, login.step, 1, login.expires);
+    .run(login.id, login.identifier, login.phone_number, login.consent, login.auto_approve, login.use_dms, login.session_id, login.connect_url, login.context_id, login.step, 1, login.expires));
 
   try {
     const step = await withPage(session.connectUrl, async page => {
@@ -84,13 +84,13 @@ export async function startLogin(input: LoginInput): Promise<{ login_id: string;
       return nextStep(page);
     });
     if (step === "ready") throw new MuseError("Muse logged in without asking for a code; this flow expects one.");
-    setStep(login.id, step);
+    (await setStep(login.id, step));
     return { login_id: login.id, step };
   } catch (error) {
     await dropLogin(login);
     throw error;
   } finally {
-    setBusy(login.id, false);
+    (await setBusy(login.id, false));
   }
 }
 
@@ -100,10 +100,10 @@ export async function startLogin(input: LoginInput): Promise<{ login_id: string;
  * token the phone uses from then on.
  */
 export async function verifyLogin(loginId: string, credential: string): Promise<{ step: Login["step"]; device_token?: string }> {
-  const login = loginById(loginId);
+  const login = (await loginById(loginId));
   if (!login || login.expires < Date.now()) throw new MuseError("Login expired. Start again.");
   if (login.busy) throw new MuseError("A browser action is already running.");
-  setBusy(login.id, true);
+  (await setBusy(login.id, true));
   try {
     const step = await withPage(login.connect_url, async page => {
       // A previous Verify may have been accepted after the server stopped looking;
@@ -133,22 +133,22 @@ export async function verifyLogin(loginId: string, credential: string): Promise<
       return next;
     });
     if (step !== "ready") {
-      setStep(login.id, step);
+      (await setStep(login.id, step));
       return { step };
     }
 
-    const { account, deviceToken } = upsertAccount({
+    const { account, deviceToken } = (await upsertAccount({
       identifier: login.identifier,
       phone_number: login.phone_number,
       consent: login.consent === 1,
       use_dms: login.use_dms === 1,
       browserbase_context_id: login.context_id,
-    });
+    }));
     // A fresh login starts a fresh profile run: clear any failure left from an
     // earlier attempt, or the phone would show that old error while this one runs.
-    db().prepare("UPDATE accounts SET profile_status = 'pending', profile_error = NULL, callback_token = NULL, prompted_at = ? WHERE id = ?")
-      .run(Date.now(), account.id);
-    db().prepare("DELETE FROM logins WHERE id = ?").run(login.id);
+    (await db().prepare("UPDATE accounts SET profile_status = 'pending', profile_error = NULL, callback_token = NULL, prompted_at = ? WHERE id = ?")
+      .run(Date.now(), account.id));
+    (await db().prepare("DELETE FROM logins WHERE id = ?").run(login.id));
     // The rest takes minutes (Muse must contact each site so the approval cards
     // can be accepted), so it runs on after this request returns; the phone
     // polls GET /api/app/me meanwhile.
@@ -159,7 +159,7 @@ export async function verifyLogin(loginId: string, credential: string): Promise<
     await dropLogin(login);
     throw error;
   } finally {
-    setBusy(login.id, false);
+    (await setBusy(login.id, false));
   }
 }
 
@@ -172,7 +172,7 @@ async function finishSetup(account: Account, login: Login): Promise<void> {
   const tag = `[${login.identifier}]`;
   try {
     await withPage(login.connect_url, async page => {
-      const callbackToken = beginPrompt(account.id);
+      const callbackToken = (await beginPrompt(account.id));
       if (login.auto_approve) {
         await runWithConnectionTest(page, tag, callbackToken, login.use_dms === 1);
       } else {
@@ -185,8 +185,8 @@ async function finishSetup(account: Account, login: Login): Promise<void> {
     console.error(tag, "Muse setup failed:", full);
     // Browser errors append a long call log; the phone only needs the first line.
     const message = full.split("\n")[0].slice(0, 300);
-    db().prepare("UPDATE accounts SET profile_status = 'error', profile_error = ?, callback_token = NULL WHERE id = ?")
-      .run(`Setting up Muse failed: ${message}`, account.id);
+    (await db().prepare("UPDATE accounts SET profile_status = 'error', profile_error = ?, callback_token = NULL WHERE id = ?")
+      .run(`Setting up Muse failed: ${message}`, account.id));
   } finally {
     // Releasing the session is what saves the cookies to the context.
     await release(login.session_id).catch(error => console.error(tag, "Browserbase release failed:", error));
@@ -207,15 +207,15 @@ async function runWithConnectionTest(
 ): Promise<void> {
   const host = new URL(config.publicUrl).hostname;
   const check = newToken();
-  db().prepare("INSERT INTO setup_checks (token) VALUES (?)").run(check);
-  const arrived = () => !!(db().prepare("SELECT received_at FROM setup_checks WHERE token = ?").get(check) as { received_at: number | null }).received_at;
+  (await db().prepare("INSERT INTO setup_checks (token) VALUES (?)").run(check));
+  const arrived = async () => !!((await db().prepare("SELECT received_at FROM setup_checks WHERE token = ?").get(check)) as { received_at: number | null }).received_at;
   await submitPrompt(page, buildMusePrompt(callbackToken, { checkToken: check, useDms }));
   console.log(tag, `Prompt sent; waiting for Muse's connection test to reach ${host}`);
   const clicked = await approveSite(page, host, arrived, SETUP_CHECK_TIMEOUT_MS);
   if (clicked) console.log(tag, `Approved ${host} for Muse ("Always allow this site")`);
   const deadline = Date.now() + SETUP_CHECK_TIMEOUT_MS;
-  while (!arrived() && Date.now() < deadline) await page.waitForTimeout(1000);
-  if (!arrived()) {
+  while (!(await arrived()) && Date.now() < deadline) await page.waitForTimeout(1000);
+  if (!(await arrived())) {
     throw new MuseError(clicked
       ? `Approved ${host} for Muse, but Muse's test request never reached the server.`
       : `Muse didn't run the connection test (no request to ${host} and no approval card within ${SETUP_CHECK_TIMEOUT_MS / 60_000} minutes). Open the Muse app to see what it said.`);
@@ -225,10 +225,10 @@ async function runWithConnectionTest(
 }
 
 /** Marks a prompt as sent and returns the single-use token Muse must call back with. */
-function beginPrompt(accountId: number): string {
+async function beginPrompt(accountId: number): Promise<string> {
   const token = newToken();
-  db().prepare("UPDATE accounts SET callback_token = ?, prompted_at = ?, profile_status = CASE WHEN username IS NULL THEN 'pending' ELSE profile_status END, profile_error = NULL WHERE id = ?")
-    .run(token, Date.now(), accountId);
+  (await db().prepare("UPDATE accounts SET callback_token = ?, prompted_at = ?, profile_status = CASE WHEN username IS NULL THEN 'pending' ELSE profile_status END, profile_error = NULL WHERE id = ?")
+    .run(token, Date.now(), accountId));
   return token;
 }
 
@@ -242,7 +242,7 @@ export async function sendSummaryPrompt(account: Account): Promise<void> {
       return nextStep(page);
     });
     if (step !== "ready") throw new MuseError("Muse is no longer logged in (it asked for a code again). Log in again from the app.");
-    const callbackToken = beginPrompt(account.id);
+    const callbackToken = (await beginPrompt(account.id));
     await withPage(session.connectUrl, page => submitPrompt(page, buildMusePrompt(callbackToken, { useDms: account.use_dms === 1 })));
   } finally {
     await release(session.id).catch(() => {});
@@ -250,26 +250,26 @@ export async function sendSummaryPrompt(account: Account): Promise<void> {
 }
 
 /**
- * Muse's result: writes the taste_profile row to SpacetimeDB (replacing any
+ * Muse's result: writes the taste_profile row to Neon (replacing any
  * older one for this username), then marks the account ready. With
  * [summary] null (mock logins), the row must already exist.
  */
 export async function completeProfile(account: Account, username: string, name: string, summary: string | null): Promise<void> {
-  const taken = db().prepare("SELECT id FROM accounts WHERE username = ? AND id != ?").get(username, account.id);
+  const taken = (await db().prepare("SELECT id FROM accounts WHERE username = ? AND id != ?").get(username, account.id));
   if (taken) throw new MuseError(`Username "${username}" already belongs to another account.`);
   if (summary !== null) await saveTasteProfile(name, username, summary);
   const profile = await tasteProfileByUsername(username);
   if (!profile) {
-    db().prepare("UPDATE accounts SET profile_status = 'error', profile_error = ?, callback_token = NULL WHERE id = ?")
-      .run(`No taste_profile row for "${username}" in SpacetimeDB.`, account.id);
-    throw new MuseError(`No taste_profile row for "${username}" in SpacetimeDB.`);
+    (await db().prepare("UPDATE accounts SET profile_status = 'error', profile_error = ?, callback_token = NULL WHERE id = ?")
+      .run(`No taste_profile row for "${username}" in Neon.`, account.id));
+    throw new MuseError(`No taste_profile row for "${username}" in Neon.`);
   }
-  db().prepare("UPDATE accounts SET username = ?, name = ?, summary = ?, profile_status = 'ready', profile_error = NULL, refresh_error = NULL, summarized_at = ?, callback_token = NULL WHERE id = ?")
-    .run(username, name || profile.name, profile.summary, Date.now(), account.id);
+  (await db().prepare("UPDATE accounts SET username = ?, name = ?, summary = ?, profile_status = 'ready', profile_error = NULL, refresh_error = NULL, summarized_at = ?, callback_token = NULL WHERE id = ?")
+    .run(username, name || profile.name, profile.summary, Date.now(), account.id));
   // Scores are cached per pair; a new summary makes this person's old ones stale,
   // so they're recalculated the next time they meet anyone. Texts already sent
   // are kept (notifications), so nobody is re-texted for the same encounter.
-  const cleared = db().prepare("DELETE FROM scores WHERE pair LIKE ? OR pair LIKE ?").run(`${username}|%`, `%|${username}`).changes;
+  const cleared = (await db().prepare("DELETE FROM scores WHERE pair LIKE ? OR pair LIKE ?").run(`${username}|%`, `%|${username}`)).changes;
   console.log(`Summary for ${username} updated (${profile.summary.length} chars); cleared ${cleared} cached score(s)`);
   await registerForTexts({ ...account, name: name || profile.name });
 }
@@ -284,11 +284,11 @@ export async function registerForTexts(account: Pick<Account, "id" | "phone_numb
   if (!account.consent || config.notifier !== "photon") return;
   try {
     const { line } = await registerRecipient(account.phone_number, account.name);
-    db().prepare("UPDATE accounts SET photon_error = NULL, photon_line = ? WHERE id = ?").run(line, account.id);
+    (await db().prepare("UPDATE accounts SET photon_error = NULL, photon_line = ? WHERE id = ?").run(line, account.id));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`Photon registration failed for account ${account.id}: ${message}`);
-    db().prepare("UPDATE accounts SET photon_error = ? WHERE id = ?").run(message, account.id);
+    (await db().prepare("UPDATE accounts SET photon_error = ? WHERE id = ?").run(message, account.id));
   }
 }
 
@@ -298,10 +298,10 @@ export function confirmTexts(account: Pick<Account, "id" | "phone_number" | "use
     const error = await sendTextsConfirmation(account.phone_number);
     if (error) {
       console.error(`Confirmation text to ${account.username ?? account.id} failed: ${error}`);
-      db().prepare("UPDATE accounts SET photon_error = ? WHERE id = ?").run(`Confirmation text failed: ${error}`, account.id);
+      (await db().prepare("UPDATE accounts SET photon_error = ? WHERE id = ?").run(`Confirmation text failed: ${error}`, account.id));
     } else {
       console.log(`Confirmation text sent to ${account.username ?? account.id}`);
-      db().prepare("UPDATE accounts SET texts_confirmed_at = ?, photon_error = NULL WHERE id = ?").run(Date.now(), account.id);
+      (await db().prepare("UPDATE accounts SET texts_confirmed_at = ?, photon_error = NULL WHERE id = ?").run(Date.now(), account.id));
       // Photon can reach them now: send the match texts that failed before.
       if (account.username) {
         const caughtUp = await retryFailedTexts(account.username);
@@ -312,20 +312,20 @@ export function confirmTexts(account: Pick<Account, "id" | "phone_number" | "use
 }
 
 /** Marks profiles failed when Muse hasn't called back in time. Called from GET /api/app/me. */
-export function failIfTimedOut(account: Account): Account {
+export async function failIfTimedOut(account: Account): Promise<Account> {
   if (account.profile_status === "pending" && account.prompted_at && Date.now() - account.prompted_at > config.museCallbackTimeoutMs) {
     const minutes = Math.round(config.museCallbackTimeoutMs / 60_000);
-    db().prepare("UPDATE accounts SET profile_status = 'error', profile_error = ?, callback_token = NULL WHERE id = ?")
-      .run(`Muse did not report back within ${minutes} minutes. Check the Muse app for errors, then log in again.`, account.id);
+    (await db().prepare("UPDATE accounts SET profile_status = 'error', profile_error = ?, callback_token = NULL WHERE id = ?")
+      .run(`Muse did not report back within ${minutes} minutes. Check the Muse app for errors, then log in again.`, account.id));
     return { ...account, profile_status: "error", profile_error: `Muse did not report back within ${minutes} minutes.` };
   }
   return account;
 }
 
-/** Testing without Muse: the taste_profile row must already exist (created with the spacetime CLI). */
+/** Testing without Muse: the taste_profile row must already exist in Neon. */
 export async function mockLogin(input: LoginInput, username: string): Promise<{ device_token: string }> {
   if (!config.mockMuse) throw new MuseError("MOCK_MUSE is off.");
-  const { account, deviceToken } = upsertAccount({ ...input, browserbase_context_id: null });
+  const { account, deviceToken } = (await upsertAccount({ ...input, browserbase_context_id: null }));
   await completeProfile(account, username, "", null);
   return { device_token: deviceToken };
 }

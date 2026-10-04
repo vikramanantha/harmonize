@@ -5,28 +5,28 @@ import { db } from "@/lib/db";
 import { matchesFor } from "@/lib/matching";
 import { failIfTimedOut, registerForTexts } from "@/lib/muse-session";
 import { accountById } from "@/lib/db";
-import { tasteProfileByUsername } from "@/lib/spacetime";
+import { tasteProfileByUsername } from "@/lib/profiles";
 
 export const runtime = "nodejs";
 
 export const GET = handler(async request => {
-  let account = failIfTimedOut(requireAccount(request));
+  let account = (await failIfTimedOut((await requireAccount(request))));
   // Accounts that became ready before the server kept a copy of the summary.
   if (account.profile_status === "ready" && account.username && !account.summary) {
     const profile = await tasteProfileByUsername(account.username);
     if (profile) {
-      db().prepare("UPDATE accounts SET summary = ? WHERE id = ?").run(profile.summary, account.id);
+      (await db().prepare("UPDATE accounts SET summary = ? WHERE id = ?").run(profile.summary, account.id));
       account = { ...account, summary: profile.summary };
     }
   }
   // Accounts that became ready before Photon was on get registered here, once.
   if (account.profile_status === "ready" && account.consent && config.notifier === "photon" && !account.photon_line && !account.photon_error) {
     await registerForTexts(account);
-    account = accountById(account.id) ?? account;
+    account = (await accountById(account.id)) ?? account;
   }
   const username = account.username;
   const done = !config.loop && !!username &&
-    db().prepare("SELECT 1 FROM notifications WHERE username = ? AND status = 'sent' LIMIT 1").get(username);
+    (await db().prepare("SELECT 1 FROM notifications WHERE username = ? AND status = 'sent' LIMIT 1").get(username));
   return json({
     profile_status: account.profile_status,
     profile_error: account.profile_error,
@@ -46,6 +46,6 @@ export const GET = handler(async request => {
     loop: config.loop,
     match_threshold: config.matchThreshold,
     done: !!done,
-    matches: username ? matchesFor(username) : [],
+    matches: username ? (await matchesFor(username)) : [],
   });
 });

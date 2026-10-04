@@ -1,80 +1,6 @@
-// Private server state in a SQLite file. Everything here is data that must not
-// go in the shared SpacetimeDB, which anyone can read: phone numbers, device
-// tokens, Muse login state, and the scores we trust for sending texts.
-import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
-import { createHash, randomBytes } from "node:crypto";
-import { config } from "./config";
-
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS accounts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  identifier TEXT UNIQUE NOT NULL,            -- Muse login email or mobile number
-  phone_number TEXT NOT NULL,                 -- where Photon texts this user
-  consent INTEGER NOT NULL DEFAULT 0,         -- agreed to be texted about matches
-  device_token_hash TEXT UNIQUE,
-  browserbase_context_id TEXT,                -- keeps the Muse login for later prompts
-  username TEXT UNIQUE,                       -- Instagram username, reported by Muse
-  name TEXT,
-  profile_status TEXT NOT NULL DEFAULT 'pending',  -- pending | ready | error
-  profile_error TEXT,
-  callback_token TEXT UNIQUE,                 -- single-use; identifies the pending prompt
-  prompted_at INTEGER,
-  summarized_at INTEGER,
-  refresh_error TEXT,
-  photon_error TEXT,                          -- why adding this number to Photon's Users list failed
-  photon_line TEXT,                           -- the Photon number this person must text once first
-  first_text_at INTEGER,                      -- when the app reported sending that first text
-  texts_confirmed_at INTEGER,                 -- when the "match texts are on" text was delivered to Photon
-  summary TEXT,                               -- copy of the Instagram summary Muse wrote (shown in developer mode)
-  use_dms INTEGER NOT NULL DEFAULT 0,         -- include reels shared in Instagram messages
-  created_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS logins (
-  id TEXT PRIMARY KEY,
-  identifier TEXT NOT NULL,
-  phone_number TEXT NOT NULL,
-  consent INTEGER NOT NULL,
-  auto_approve INTEGER NOT NULL DEFAULT 0,  -- user ticked "approve Muse's access to this server for me"
-  use_dms INTEGER NOT NULL DEFAULT 0,       -- user ticked "include reels from my Instagram messages"
-  session_id TEXT NOT NULL,
-  connect_url TEXT NOT NULL,
-  context_id TEXT NOT NULL,
-  step TEXT NOT NULL,
-  busy INTEGER NOT NULL DEFAULT 0,
-  expires INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS setup_checks (
-  token TEXT PRIMARY KEY,                     -- in the setup-check prompt
-  received_at INTEGER                          -- when Muse's test POST arrived
-);
-CREATE TABLE IF NOT EXISTS sightings (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  me TEXT NOT NULL,
-  other TEXT NOT NULL,
-  seen_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS sightings_pair ON sightings (me, other, seen_at);
-CREATE TABLE IF NOT EXISTS scores (
-  pair TEXT PRIMARY KEY,                      -- "a|b" with a < b
-  profile_a INTEGER NOT NULL,                 -- taste_profile ids
-  profile_b INTEGER NOT NULL,
-  score REAL NOT NULL,
-  verdict TEXT NOT NULL,
-  scored_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS notifications (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  pair TEXT NOT NULL,
-  username TEXT NOT NULL,                     -- recipient
-  status TEXT NOT NULL,                       -- sent | failed
-  message_id TEXT,
-  error TEXT,
-  created_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS notifications_pair ON notifications (pair, created_at);
-`;
+// Server-only Neon Postgres storage for accounts, sessions and matching state.
+import { createHash, randomBytes } from 'node:crypto';
+import { database } from './neon';
 
 export type Account = {
   id: number;
@@ -115,51 +41,47 @@ export type Login = {
   expires: number;
 };
 
-const globalState = globalThis as typeof globalThis & { harmonyDb?: DatabaseSync };
-
-export function db(): DatabaseSync {
-  if (!globalState.harmonyDb) {
-    mkdirSync(dirname(config.dbPath), { recursive: true });
-    const database = new DatabaseSync(config.dbPath);
-    database.exec("PRAGMA journal_mode = WAL");
-    database.exec(SCHEMA);
-    // Columns added after the first release; ignore "duplicate column" on newer files.
-    try { database.exec("ALTER TABLE logins ADD COLUMN auto_approve INTEGER NOT NULL DEFAULT 0"); } catch {}
-    try { database.exec("ALTER TABLE accounts ADD COLUMN photon_error TEXT"); } catch {}
-    try { database.exec("ALTER TABLE accounts ADD COLUMN photon_line TEXT"); } catch {}
-    try { database.exec("ALTER TABLE accounts ADD COLUMN first_text_at INTEGER"); } catch {}
-    try { database.exec("ALTER TABLE accounts ADD COLUMN texts_confirmed_at INTEGER"); } catch {}
-    try { database.exec("ALTER TABLE accounts ADD COLUMN summary TEXT"); } catch {}
-    try { database.exec("ALTER TABLE accounts ADD COLUMN use_dms INTEGER NOT NULL DEFAULT 0"); } catch {}
-    try { database.exec("ALTER TABLE logins ADD COLUMN use_dms INTEGER NOT NULL DEFAULT 0"); } catch {}
-    globalState.harmonyDb = database;
-  }
-  return globalState.harmonyDb;
+/** Async prepared queries; values are always bound separately from SQL. */
+export function db() {
+  return {
+    prepare(query: string) {
+      let index = 0;
+      const sql = query.replace(/\?/g, () => '$' + (++index));
+      return {
+        async get(...values: unknown[]) { return (await database().query(sql, values))[0]; },
+        async all(...values: unknown[]) { return await database().query(sql, values); },
+        async run(...values: unknown[]) {
+          const result = await database().query(sql, values, { fullResults: true });
+          return { changes: result.rowCount };
+        },
+      };
+    },
+  };
 }
 
 export const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
 export const newToken = () => randomBytes(32).toString("hex");
 
-export function accountByToken(token: string): Account | null {
-  return (db().prepare("SELECT * FROM accounts WHERE device_token_hash = ?").get(hashToken(token)) as Account | undefined) ?? null;
+export async function accountByToken(token: string): Promise<Account | null> {
+  return ((await db().prepare("SELECT * FROM accounts WHERE device_token_hash = ?").get(hashToken(token))) as Account | undefined) ?? null;
 }
 
-export function accountById(id: number): Account | null {
-  return (db().prepare("SELECT * FROM accounts WHERE id = ?").get(id) as Account | undefined) ?? null;
+export async function accountById(id: number): Promise<Account | null> {
+  return ((await db().prepare("SELECT * FROM accounts WHERE id = ?").get(id)) as Account | undefined) ?? null;
 }
 
-export function accountByUsername(username: string): Account | null {
-  return (db().prepare("SELECT * FROM accounts WHERE username = ?").get(username) as Account | undefined) ?? null;
+export async function accountByUsername(username: string): Promise<Account | null> {
+  return ((await db().prepare("SELECT * FROM accounts WHERE username = ?").get(username)) as Account | undefined) ?? null;
 }
 
-export function accountByCallbackToken(token: string): Account | null {
-  return (db().prepare("SELECT * FROM accounts WHERE callback_token = ?").get(token) as Account | undefined) ?? null;
+export async function accountByCallbackToken(token: string): Promise<Account | null> {
+  return ((await db().prepare("SELECT * FROM accounts WHERE callback_token = ?").get(token)) as Account | undefined) ?? null;
 }
 
 /** Creates the account on first login, or re-issues a device token on a later one. Returns the plain token. */
-export function upsertAccount(fields: { identifier: string; phone_number: string; consent: boolean; use_dms?: boolean; browserbase_context_id: string | null }): { account: Account; deviceToken: string } {
+export async function upsertAccount(fields: { identifier: string; phone_number: string; consent: boolean; use_dms?: boolean; browserbase_context_id: string | null }): Promise<{ account: Account; deviceToken: string }> {
   const token = newToken();
-  db().prepare(`
+  (await db().prepare(`
     INSERT INTO accounts (identifier, phone_number, consent, use_dms, device_token_hash, browserbase_context_id, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (identifier) DO UPDATE SET
@@ -168,8 +90,8 @@ export function upsertAccount(fields: { identifier: string; phone_number: string
       use_dms = excluded.use_dms,
       device_token_hash = excluded.device_token_hash,
       browserbase_context_id = excluded.browserbase_context_id
-  `).run(fields.identifier, fields.phone_number, fields.consent ? 1 : 0, fields.use_dms ? 1 : 0, hashToken(token), fields.browserbase_context_id, Date.now());
-  const account = db().prepare("SELECT * FROM accounts WHERE identifier = ?").get(fields.identifier) as Account;
+  `).run(fields.identifier, fields.phone_number, fields.consent ? 1 : 0, fields.use_dms ? 1 : 0, hashToken(token), fields.browserbase_context_id, Date.now()));
+  const account = (await db().prepare("SELECT * FROM accounts WHERE identifier = ?").get(fields.identifier)) as Account;
   return { account, deviceToken: token };
 }
 
