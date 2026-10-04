@@ -21,9 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -74,7 +72,6 @@ fun HomeScreen(
     onSignOut: () -> Unit,
     onTurnOnTexts: (String) -> Unit,
     onTextsChange: (Boolean) -> Unit,
-    onResetDemo: () -> Unit,
 ) {
     val me = state.me
     val colors = MaterialTheme.colorScheme
@@ -167,8 +164,6 @@ fun HomeScreen(
                         DevLine("Photon line", it.photonLine ?: "none (texts off or not registered)")
                         DevLine("First text", if (it.firstTextAt != null) "sent" else "not sent")
                     }
-                    Spacer(Modifier.height(16.dp))
-                    ResetDemoButton(onResetDemo)
                 }
             }
             me?.summary?.let { summary ->
@@ -406,23 +401,6 @@ private fun MatchCard(match: Api.Match, modifier: Modifier = Modifier) {
                 else -> Pill("Different tastes", colors.surfaceVariant, colors.onSurfaceVariant)
             }
         }
-    }
-}
-
-@Composable
-private fun ResetDemoButton(onReset: () -> Unit) {
-    var confirming by remember { mutableStateOf(false) }
-    OutlinedButton(onClick = { confirming = true }, modifier = Modifier.fillMaxWidth()) {
-        Text("Reset demo for everyone")
-    }
-    if (confirming) {
-        AlertDialog(
-            onDismissRequest = { confirming = false },
-            title = { Text("Reset the demo?") },
-            text = { Text("This forgets who has been texted, for every Harmonize user, so the same people can match and be texted again. Match scores are kept.") },
-            confirmButton = { TextButton(onClick = { confirming = false; onReset() }) { Text("Reset") } },
-            dismissButton = { TextButton(onClick = { confirming = false }) { Text("Cancel") } },
-        )
     }
 }
 

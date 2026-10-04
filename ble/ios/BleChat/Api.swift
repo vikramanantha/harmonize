@@ -102,14 +102,6 @@ enum Api {
         return result.photon_line
     }
 
-    private struct ResetResult: Decodable { let notifications: Int; let sightings: Int }
-
-    /// Developer mode: clears who has been texted, for everyone. Returns how many texts were cleared.
-    static func resetDemo() async throws -> Int {
-        let result: ResetResult = try await request("POST", "/api/app/dev/reset", body: [:], auth: true)
-        return result.notifications
-    }
-
     static func reportFirstText(line: String) async throws {
         let _: Ok = try await request("POST", "/api/app/photon/first-text", body: ["line": line], auth: true)
     }

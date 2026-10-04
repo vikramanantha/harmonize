@@ -4,7 +4,7 @@ import { profiles, reels, categories } from "@/lib/data";
 import type { ReactNode } from "react";
 export function Brand() {
   return (
-    <Link href="/" className="brand" aria-label="VibeCheck home">
+    <Link href="/vibecheck" className="brand" aria-label="VibeCheck home">
       <AudioLines size={25} strokeWidth={2.5} />
       vibecheck<span className="brand-period">®</span>
     </Link>

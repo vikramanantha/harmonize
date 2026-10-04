@@ -9,3 +9,4 @@ data/
 .npm-cache/
 __pycache__/
 .neon
+ble/ios/build/

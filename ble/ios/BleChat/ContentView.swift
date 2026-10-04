@@ -23,7 +23,6 @@ struct MainView: View {
     @State private var textsPending: Bool?
     @State private var textsError: String?
     @State private var composeLine: String?
-    @State private var confirmingReset = false
 
     private static let firstText = "Hi Harmonize! Turning on my match texts."
 
@@ -199,15 +198,6 @@ struct MainView: View {
                     devLine("Photon line", me.photon_line ?? "none")
                     devLine("First text", me.first_text_at != nil ? "sent" : "not sent")
                 }
-                Button("Reset demo for everyone", role: .destructive) { confirmingReset = true }
-                    .font(.subheadline.weight(.medium))
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 14)
-                    .confirmationDialog("Reset the demo?", isPresented: $confirmingReset, titleVisibility: .visible) {
-                        Button("Reset", role: .destructive) { resetDemo() }
-                    } message: {
-                        Text("This forgets who has been texted, for every Harmonize user, so the same people can match and be texted again. Match scores are kept.")
-                    }
             }
             if let summary = store.me?.summary {
                 sectionTitle("Your Instagram summary", trailing: nil)
@@ -224,18 +214,6 @@ struct MainView: View {
                     Text(line).font(.caption2.monospaced()).padding(.vertical, 3)
                 }
             }
-        }
-    }
-
-    private func resetDemo() {
-        Task {
-            do {
-                let cleared = try await Api.resetDemo()
-                store.onLog("Demo reset: cleared \(cleared) texts. Everyone can match again.")
-            } catch {
-                store.onLog("Demo reset failed: \(error.localizedDescription)")
-            }
-            await store.refresh()
         }
     }
 

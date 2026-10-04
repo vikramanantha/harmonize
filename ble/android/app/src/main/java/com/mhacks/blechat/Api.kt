@@ -152,10 +152,6 @@ object Api {
         return j.optStringOrNull("photon_line")
     }
 
-    /** Developer mode: clears who has been texted, for everyone. Returns how many texts were cleared. */
-    fun resetDemo(context: Context): Int =
-        post(context, "/api/app/dev/reset", JSONObject(), auth = true).optInt("notifications")
-
     fun reportFirstText(context: Context, line: String) {
         post(context, "/api/app/photon/first-text", JSONObject().put("line", line), auth = true)
     }

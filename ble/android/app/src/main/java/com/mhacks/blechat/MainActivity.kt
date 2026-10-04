@@ -78,7 +78,6 @@ class MainActivity : ComponentActivity(), BleListener {
                             onSignOut = ::signOut,
                             onTurnOnTexts = ::openFirstText,
                             onTextsChange = ::setTexts,
-                            onResetDemo = ::resetDemo,
                         )
                     } else {
                         SignInScreen(devMode = devMode, onDevModeChange = ::setDev, onSignedIn = ::onSignedIn)
@@ -161,14 +160,6 @@ class MainActivity : ComponentActivity(), BleListener {
     // On Photon's shared lines, a person must text their assigned line once
     // before Photon may text them. With SMS permission the app sends it; without,
     // the home screen offers a button that opens Messages pre-filled.
-
-    private fun resetDemo() {
-        Api.async({ Api.resetDemo(this) }, { onLog("Demo reset failed: $it") }) { cleared ->
-            onLog("Demo reset: cleared $cleared texts. Everyone can match again.")
-            Toast.makeText(this, "Demo reset. Everyone can match again.", Toast.LENGTH_SHORT).show()
-            home.me = home.me?.copy(done = false)
-        }
-    }
 
     /** The Match texts switch: saves it, then sends the first text if this phone hasn't yet. */
     private fun setTexts(enabled: Boolean) {
