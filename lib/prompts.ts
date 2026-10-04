@@ -29,15 +29,12 @@ export function buildMusePrompt(callbackToken: string, options: { checkToken?: s
       "",
     ].join("\n")
     : "";
-  // Include Instagram messages only when the user requested them.
+  // DMs only with the person's opt-in, and only if Muse already has Instagram
+  // Messages connected: never ask the person to connect it or to confirm.
   const reelsSources = useDms
-    ? "Read my liked reels, saved reels, and the reels shared in my Instagram direct messages (reels I've sent or received). " +
-      "If your Instagram messages access isn't turned on yet, turn it on now. I'm fine with it being allowed and always allowed. " +
-      "Present the actionable Connect messages button or connection card in this chat. " +
-      "Harmonize's Browserbase browser will click Connect messages and then Connect directly on my behalf. " +
-      "Don't ask me to click those buttons or wait for a separate chat confirmation. Once the connection completes, continue with this task. " +
-      "In my messages, only look at the reels: don't read, quote, or summarize the text " +
-      "of my conversations, and don't mention who I talk to."
+    ? "Read my liked reels and saved reels. If Instagram Messages is already connected for you, also include reels shared in my " +
+      "DMs (only the reels, never the conversation text or who I talk to). If it isn't connected, skip DMs: don't ask me about " +
+      "them and don't ask me to connect anything."
     : "Read my liked reels and saved reels. Don't open my Instagram messages.";
   return template
     .replaceAll("{{REELS_SOURCES}}", reelsSources)

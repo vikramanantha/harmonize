@@ -57,7 +57,7 @@ struct OnboardingView: View {
         CardBox {
             if step == "start" {
                 Text("Sign in with Muse").font(.title3.weight(.semibold))
-                Text("Muse reads your Instagram to learn what you're into. We never see your password.")
+                Text("Muse reads your Instagram. We never see your password.")
                     .font(.subheadline).foregroundStyle(.secondary).padding(.top, 4)
                 VStack(spacing: 12) {
                     if devMode {
@@ -71,22 +71,24 @@ struct OnboardingView: View {
                 }
                 .padding(.top, 20)
                 Toggle("Text me about matches", isOn: $textMe).tint(Brand.violet).padding(.top, 14)
-                Toggle(isOn: $autoApprove) {
-                    Text("Let Harmonize approve Muse's access to our server for me (we'll tap \"Always allow\" for our site only)")
-                        .font(.subheadline).foregroundStyle(.secondary)
+                Toggle("Include reels from DMs (optional)", isOn: $useDms).tint(Brand.violet).padding(.top, 10)
+                // Texts and this approval are both required: texts deliver matches, and the
+                // approval lets the server finish Muse's setup. The server enforces this too.
+                Button { autoApprove.toggle() } label: {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: autoApprove ? "checkmark.square.fill" : "square")
+                            .font(.title3)
+                            .foregroundStyle(autoApprove ? Brand.violet : Color.secondary)
+                        Text("Let Muse auto-approve Harmonize APIs. Harmonize will never look at your messages or other private data, only posts and reels you have interacted with")
+                            .font(.footnote).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                    }
                 }
-                .tint(Brand.violet)
-                .padding(.top, 10)
-                // Both are required: texts deliver matches, and the approval lets the
-                // server finish Muse's setup. The server enforces this too.
-                Toggle(isOn: $useDms) {
-                    Text("Optional: include reels shared in my Instagram messages. Muse turns on Instagram messages access (always allowed) and looks only at the reels, never your conversations.")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                }
-                .tint(Brand.violet)
-                .padding(.top, 10)
+                .buttonStyle(.plain)
+                .disabled(busy)
+                .padding(.top, 16)
                 if !(textMe && autoApprove) {
-                    Text("Turn on both options above to continue.")
+                    Text("Turn on texts and auto-approve to continue.")
                         .font(.subheadline).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity).padding(.top, 16)
                 }
@@ -141,7 +143,8 @@ struct OnboardingView: View {
         case "password": return "Enter your Muse password"
         case "sms_code": return "Enter the code we texted you"
         case "phone": return "Confirm your phone number"
-        default: return "Check your messages"
+        // Email sign-ins get the code by email; phone sign-ins by text.
+        default: return identifier.contains("@") ? "Check your email" : "Check your texts"
         }
     }
 

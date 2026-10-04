@@ -67,7 +67,7 @@ async function handle(me: Account, otherUsername: string): Promise<EncounterResu
 
   const theySawMe = db().prepare("SELECT 1 FROM sightings WHERE me = ? AND other = ? AND seen_at >= ? LIMIT 1")
     .get(otherUsername, me.username, now - config.proximityWindowMs);
-  if (!theySawMe) return { status: "match_waiting", matched, ...base };
+  if (config.requireMutualSighting && !theySawMe) return { status: "match_waiting", matched, ...base };
 
   const other = accountByUsername(otherUsername);
   if (!other || !me.consent || !other.consent) return { status: "match_no_consent", matched, ...base };
@@ -114,6 +114,46 @@ async function notifyBoth(score: Score, me: Account, mine: TasteProfile, other: 
     }
   }
   if (errors.length) throw new Error(`Match found but texting failed. ${errors.join(" | ")}`);
+}
+
+/**
+ * Sends the match texts that couldn't reach [username] earlier, typically
+ * because Photon wouldn't text them until they sent their setup text. Called
+ * once their "match texts are on" confirmation goes through. Only this person is
+ * texted; the other side of each match already got theirs (or gets their own
+ * catch-up after their own setup). Returns how many were sent.
+ */
+export async function retryFailedTexts(username: string): Promise<number> {
+  const recipient = accountByUsername(username);
+  if (!recipient || !recipient.consent) return 0;
+  // Pairs where the latest text to this person failed.
+  const pairs = db().prepare(`
+    SELECT n.pair FROM notifications n
+    WHERE n.username = ? AND n.status = 'failed'
+      AND NOT EXISTS (SELECT 1 FROM notifications s WHERE s.pair = n.pair AND s.username = n.username AND s.status = 'sent')
+    GROUP BY n.pair
+  `).all(username) as { pair: string }[];
+  let sent = 0;
+  for (const { pair } of pairs) {
+    const score = db().prepare("SELECT * FROM scores WHERE pair = ?").get(pair) as Score | undefined;
+    if (!score) continue;
+    const [a, b] = pair.split("|");
+    const otherUsername = a === username ? b : a;
+    const name = accountByUsername(otherUsername)?.name ?? (await tasteProfileByUsername(otherUsername))?.name ?? otherUsername;
+    const text = `Harmonize: you matched with ${name} (@${otherUsername}) earlier, ${Math.round(score.score * 100)}% compatible. ${score.verdict}`;
+    try {
+      const { message_id } = await notifier().send(recipient.phone_number, text);
+      db().prepare("INSERT INTO notifications (pair, username, status, message_id, created_at) VALUES (?, ?, 'sent', ?, ?)")
+        .run(pair, username, message_id ?? null, Date.now());
+      sent++;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      db().prepare("INSERT INTO notifications (pair, username, status, error, created_at) VALUES (?, ?, 'failed', ?, ?)")
+        .run(pair, username, message, Date.now());
+      console.error(`Catch-up match text to ${username} for ${otherUsername} failed: ${message}`);
+    }
+  }
+  return sent;
 }
 
 export type MatchRow = { other_username: string; other_name: string | null; score: number; verdict: string; matched: boolean; notified_at: number | null; notify_error: string | null };

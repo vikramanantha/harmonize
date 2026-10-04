@@ -17,7 +17,9 @@ enum Friendly {
         }
         if has("didn't accept that code") || has("verification code") { return "That code didn't work. Check it and try again." }
         if has("expired") { return "That sign-in took too long. Please start again." }
-        if has("slots are busy") || has("already running") { return "Harmonize is busy right now. Try again in a minute." }
+        if has("slots are busy") { return "Too many people are signing in right now. Try again in a minute." }
+        if has("out of minutes") { return "Sign-in is temporarily unavailable. Please try again later." }
+        if has("already running") { return "Harmonize is busy right now. Try again in a minute." }
         if has("supported login step") || has("captcha") {
             return "Muse asked for an extra step we can't do here. Sign in once in the Muse app, then try again."
         }

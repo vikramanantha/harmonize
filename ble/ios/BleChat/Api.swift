@@ -68,6 +68,7 @@ enum Api {
         let phone_number: String
         /// The Instagram summary Muse wrote; shown in developer mode.
         let summary: String?
+        let summarized_at: Double?
     }
 
     struct Encounter: Decodable {

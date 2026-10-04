@@ -21,7 +21,11 @@ object Friendly {
             "digit verification code" in text -> raw
             "expired" in text ->
                 "That sign-in took too long. Please start again."
-            "slots are busy" in text || "already running" in text ->
+            "slots are busy" in text ->
+                "Too many people are signing in right now. Try again in a minute."
+            "out of minutes" in text ->
+                "Sign-in is temporarily unavailable. Please try again later."
+            "already running" in text ->
                 "Harmonize is busy right now. Try again in a minute."
             "supported login step" in text || "captcha" in text ->
                 "Muse asked for an extra step we can't do here. Sign in once in the Muse app, then try again."

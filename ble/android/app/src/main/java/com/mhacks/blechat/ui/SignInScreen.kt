@@ -140,7 +140,7 @@ fun SignInScreen(devMode: Boolean, onDevModeChange: (Boolean) -> Unit, onSignedI
                 Text("Sign in with Muse", style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Muse reads your Instagram to learn what you're into. We never see your password.",
+                    "Muse reads your Instagram. We never see your password.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -156,20 +156,13 @@ fun SignInScreen(devMode: Boolean, onDevModeChange: (Boolean) -> Unit, onSignedI
                 Field("Your phone number", phone, { phone = it }, KeyboardType.Phone, enabled = !busy, supporting = "We'll text you when there's a match nearby")
                 Spacer(Modifier.height(16.dp))
                 ToggleRow("Text me about matches", textMe, enabled = !busy) { textMe = it }
-                Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(top = 4.dp)) {
+                ToggleRow("Include reels from DMs (optional)", useDms, enabled = !busy) { useDms = it }
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.Top) {
                     Checkbox(checked = autoApprove, onCheckedChange = { autoApprove = it }, enabled = !busy)
                     Text(
-                        "Let Harmonize approve Muse's access to our server for me (we'll tap \"Always allow\" for our site only)",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 12.dp),
-                    )
-                }
-                Row(verticalAlignment = Alignment.Top) {
-                    Checkbox(checked = useDms, onCheckedChange = { useDms = it }, enabled = !busy)
-                    Text(
-                        "Optional: include reels shared in my Instagram messages. Muse turns on Instagram messages access (always allowed) and looks only at the reels, never your conversations.",
-                        style = MaterialTheme.typography.bodyMedium,
+                        "Let Muse auto-approve Harmonize APIs. Harmonize will never look at your messages or other private data, only posts and reels you have interacted with",
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 12.dp),
                     )
@@ -180,7 +173,7 @@ fun SignInScreen(devMode: Boolean, onDevModeChange: (Boolean) -> Unit, onSignedI
                 val ready = textMe && autoApprove
                 if (!ready) {
                     Text(
-                        "Turn on both options above to continue.",
+                        "Turn on texts and auto-approve to continue.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -193,7 +186,8 @@ fun SignInScreen(devMode: Boolean, onDevModeChange: (Boolean) -> Unit, onSignedI
                     "password" -> "Enter your Muse password" to "Muse is asking for your password."
                     "sms_code" -> "Enter the code we texted you" to "Your Muse account uses two-step sign-in. Enter the code texted to your phone."
                     "phone" -> "Confirm your phone number" to "For two-step sign-in, Muse needs the phone number on your Muse account."
-                    else -> "Check your messages" to "Muse sent a code to $identifier."
+                    // Email sign-ins get the code by email; phone sign-ins by text.
+                    else -> (if ("@" in identifier) "Check your email" else "Check your texts") to "Muse sent a code to ${identifier.trim()}."
                 }
                 Text(title, style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(4.dp))

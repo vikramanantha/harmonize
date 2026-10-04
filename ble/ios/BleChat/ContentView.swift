@@ -213,7 +213,7 @@ struct MainView: View {
                 sectionTitle("Your Instagram summary", trailing: nil)
                 CardBox {
                     Text(summary).font(.subheadline)
-                    Text("Written by Muse. This is what your matches are scored on.")
+                    Text(summaryCaption)
                         .font(.caption).foregroundStyle(.secondary).padding(.top, 8)
                 }
             }
@@ -313,6 +313,15 @@ struct MainView: View {
             do { try await Api.reportFirstText(line: line) } catch { store.onLog("Reporting the first text failed: \(error.localizedDescription)") }
             await store.refresh()
         }
+    }
+
+    private var summaryCaption: String {
+        var caption = "Written by Muse"
+        if let ms = store.me?.summarized_at {
+            let date = Date(timeIntervalSince1970: ms / 1000)
+            caption += ", updated " + date.formatted(date: .abbreviated, time: .shortened)
+        }
+        return caption + ". This is what your matches are scored on."
     }
 
     // MARK: Pieces

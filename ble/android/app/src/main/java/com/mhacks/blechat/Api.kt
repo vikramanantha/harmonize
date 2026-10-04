@@ -57,6 +57,7 @@ object Api {
         val phoneNumber: String,
         /** The Instagram summary Muse wrote; shown in developer mode. */
         val summary: String?,
+        val summarizedAt: Long?,
     )
 
     data class Encounter(val status: String, val otherUsername: String, val otherName: String?, val score: Double?, val verdict: String?)
@@ -117,6 +118,7 @@ object Api {
             photonError = j.optStringOrNull("photon_error"),
             phoneNumber = j.optString("phone_number"),
             summary = j.optStringOrNull("summary"),
+            summarizedAt = if (j.has("summarized_at") && !j.isNull("summarized_at")) j.getLong("summarized_at") else null,
             matches = (0 until matches.length()).map { i ->
                 val m = matches.getJSONObject(i)
                 Match(

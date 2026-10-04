@@ -8,8 +8,9 @@
 import { randomUUID } from "node:crypto";
 import { config } from "./config";
 import { db, newToken, upsertAccount, type Account, type Login } from "./db";
-import { approveInstagram, approveSite, browserbase, CODE_FIELDS, createContext, PASSWORD_FIELDS, PHONE_FIELDS, createSession, MuseError, nextStep, release, submitPrompt, withPage } from "./muse-browser";
+import { approveSite, browserbase, CODE_FIELDS, createContext, PASSWORD_FIELDS, PHONE_FIELDS, createSession, MuseError, nextStep, release, submitPrompt, withPage } from "./muse-browser";
 import { registerRecipient, sendTextsConfirmation } from "./notify";
+import { retryFailedTexts } from "./matching";
 import { buildMusePrompt } from "./prompts";
 import { saveTasteProfile, tasteProfileByUsername } from "./spacetime";
 
@@ -173,7 +174,7 @@ async function finishSetup(account: Account, login: Login): Promise<void> {
     await withPage(login.connect_url, async page => {
       const callbackToken = beginPrompt(account.id);
       if (login.auto_approve) {
-        await runWithConnectionTest(page, tag, callbackToken, account.id, login.use_dms === 1, login.expires);
+        await runWithConnectionTest(page, tag, callbackToken, login.use_dms === 1);
       } else {
         await submitPrompt(page, buildMusePrompt(callbackToken, { useDms: login.use_dms === 1 }));
         console.log(tag, "Summary prompt sent to Muse");
@@ -202,9 +203,7 @@ async function runWithConnectionTest(
   page: import("playwright-core").Page,
   tag: string,
   callbackToken: string,
-  accountId: number,
   useDms: boolean,
-  sessionEnds: number,
 ): Promise<void> {
   const host = new URL(config.publicUrl).hostname;
   const check = newToken();
@@ -223,17 +222,6 @@ async function runWithConnectionTest(
   }
   console.log(tag, clicked ? "Connection test passed; Muse is reading Instagram" : `Connection test passed (${host} was already allowed); Muse is reading Instagram`);
 
-  if (useDms) {
-    // The person is fine with Instagram messages access being enabled, so click
-    // the connection and approval controls while the browser session lasts or until Muse reports back.
-    const profileDone = () =>
-      (db().prepare("SELECT callback_token FROM accounts WHERE id = ?").get(accountId) as { callback_token: string | null }).callback_token === null;
-    const watchFor = Math.max(0, sessionEnds - Date.now() - 20_000);
-    const approved = await approveInstagram(page, profileDone, watchFor);
-    console.log(tag, approved
-      ? "Handled Instagram messages connection for Muse using the user's stated preference"
-      : profileDone() ? "Muse finished without asking about Instagram messages" : "No Instagram messages card appeared while the session lasted");
-  }
 }
 
 /** Marks a prompt as sent and returns the single-use token Muse must call back with. */
@@ -278,6 +266,11 @@ export async function completeProfile(account: Account, username: string, name: 
   }
   db().prepare("UPDATE accounts SET username = ?, name = ?, summary = ?, profile_status = 'ready', profile_error = NULL, refresh_error = NULL, summarized_at = ?, callback_token = NULL WHERE id = ?")
     .run(username, name || profile.name, profile.summary, Date.now(), account.id);
+  // Scores are cached per pair; a new summary makes this person's old ones stale,
+  // so they're recalculated the next time they meet anyone. Texts already sent
+  // are kept (notifications), so nobody is re-texted for the same encounter.
+  const cleared = db().prepare("DELETE FROM scores WHERE pair LIKE ? OR pair LIKE ?").run(`${username}|%`, `%|${username}`).changes;
+  console.log(`Summary for ${username} updated (${profile.summary.length} chars); cleared ${cleared} cached score(s)`);
   await registerForTexts({ ...account, name: name || profile.name });
 }
 
@@ -309,6 +302,11 @@ export function confirmTexts(account: Pick<Account, "id" | "phone_number" | "use
     } else {
       console.log(`Confirmation text sent to ${account.username ?? account.id}`);
       db().prepare("UPDATE accounts SET texts_confirmed_at = ?, photon_error = NULL WHERE id = ?").run(Date.now(), account.id);
+      // Photon can reach them now: send the match texts that failed before.
+      if (account.username) {
+        const caughtUp = await retryFailedTexts(account.username);
+        if (caughtUp) console.log(`Sent ${caughtUp} missed match text(s) to ${account.username}`);
+      }
     }
   })();
 }

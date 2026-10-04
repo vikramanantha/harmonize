@@ -178,7 +178,9 @@ fun HomeScreen(
                         Text(summary, style = MaterialTheme.typography.bodyMedium)
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "Written by Muse. This is what your matches are scored on.",
+                            "Written by Muse" + (me.summarizedAt?.let {
+                                ", updated " + java.text.SimpleDateFormat("MMM d, h:mm a", java.util.Locale.US).format(java.util.Date(it))
+                            } ?: "") + ". This is what your matches are scored on.",
                             style = MaterialTheme.typography.labelMedium,
                             color = colors.onSurfaceVariant,
                         )

@@ -40,6 +40,13 @@ export const config = {
   get loop() { return bool("LOOP", false); },
   /** Both phones must report seeing each other within this window to count as "nearby". */
   get proximityWindowMs() { return num("PROXIMITY_WINDOW_MS", 10_000); },
+  /**
+   * true: text only once BOTH phones have reported each other within
+   * PROXIMITY_WINDOW_MS (harder to fake). false: text as soon as either phone
+   * sees the other; any signed-in user could then trigger a text by reporting a
+   * username, so keep it true outside of demos.
+   */
+  get requireMutualSighting() { return bool("REQUIRE_MUTUAL_SIGHTING", true); },
   /** A pair is texted at most once per encounter; a new encounter starts after this. */
   get encounterCooldownMs() { return num("ENCOUNTER_COOLDOWN_MS", 60 * 60_000); },
 
