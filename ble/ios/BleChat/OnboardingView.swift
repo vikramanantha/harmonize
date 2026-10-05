@@ -65,13 +65,10 @@ struct OnboardingView: View {
                     }
                     field("Muse email or phone", text: $identifier, keyboard: .emailAddress)
                     field("Your phone number", text: $phone, keyboard: .phonePad)
-                    Text("We'll text you when there's a match nearby.")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(.top, 20)
                 Toggle("Text me about matches", isOn: $textMe).tint(Brand.violet).padding(.top, 14)
-                Toggle("Include reels from DMs (optional)", isOn: $useDms).tint(Brand.violet).padding(.top, 10)
+                Toggle("Include reels from DMs", isOn: $useDms).tint(Brand.violet).padding(.top, 10)
                 // Texts and this approval are both required: texts deliver matches, and the
                 // approval lets the server finish Muse's setup. The server enforces this too.
                 Button { autoApprove.toggle() } label: {
@@ -80,7 +77,7 @@ struct OnboardingView: View {
                             .font(.title3)
                             .foregroundStyle(autoApprove ? Brand.violet : Color.secondary)
                         Text("Let Muse auto-approve Harmonize APIs. Harmonize will never look at your messages or other private data, only posts and reels you have interacted with")
-                            .font(.footnote).foregroundStyle(.secondary)
+                            .font(.caption).foregroundStyle(.secondary)
                             .multilineTextAlignment(.leading)
                     }
                 }

@@ -153,16 +153,16 @@ fun SignInScreen(devMode: Boolean, onDevModeChange: (Boolean) -> Unit, onSignedI
                 }
                 Field("Muse email or phone", identifier, { identifier = it }, KeyboardType.Email, enabled = !busy)
                 Spacer(Modifier.height(12.dp))
-                Field("Your phone number", phone, { phone = it }, KeyboardType.Phone, enabled = !busy, supporting = "We'll text you when there's a match nearby")
+                Field("Your phone number", phone, { phone = it }, KeyboardType.Phone, enabled = !busy)
                 Spacer(Modifier.height(16.dp))
                 ToggleRow("Text me about matches", textMe, enabled = !busy) { textMe = it }
-                ToggleRow("Include reels from DMs (optional)", useDms, enabled = !busy) { useDms = it }
+                ToggleRow("Include reels from DMs", useDms, enabled = !busy) { useDms = it }
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.Top) {
                     Checkbox(checked = autoApprove, onCheckedChange = { autoApprove = it }, enabled = !busy)
                     Text(
                         "Let Muse auto-approve Harmonize APIs. Harmonize will never look at your messages or other private data, only posts and reels you have interacted with",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 12.dp),
                     )
